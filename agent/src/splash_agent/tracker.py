@@ -6,7 +6,8 @@ from . import convert as cv
 
 # A tyre set counts as changed when the wear of any tyre moved by more than this.
 # The direction of mWear (new = 0 or 1) does not matter.
-TYRE_CHANGE_DELTA = 0.15
+# Wear only falls while driving, so a wheel whose value rose this much during a stop got a new tyre.
+TYRE_CHANGE_DELTA = 0.02
 # Fuel added is reported rounded to this many decimals.
 FUEL_DECIMALS = 2
 
@@ -119,7 +120,7 @@ def _exit_event(w: dict, st: CarState, sample: PlayerSample | None) -> dict:
         extra["fuel_added"] = round(max(sample.fuel - st.fuel_at_entry, 0.0), FUEL_DECIMALS)
     if sample is not None and st.wear_at_entry is not None:
         extra["tyres_changed"] = any(
-            abs(a - b) > TYRE_CHANGE_DELTA for a, b in zip(sample.wear, st.wear_at_entry))
+            a - b > TYRE_CHANGE_DELTA for a, b in zip(sample.wear, st.wear_at_entry))
     return _event("pit_exit", w, **extra)
 
 

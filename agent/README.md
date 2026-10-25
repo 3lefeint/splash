@@ -12,6 +12,9 @@ poll rate and streams them to the backend over WebSocket.
   are never resent.
 - The session id is built from track, session number, event start time and server name, so both PCs get the same id.
 
+The agent logs a status line every 30 seconds: session, number of cars, frames read, backend connection, queued
+messages and a note when the game time does not move (pause, menu or game closed).
+
 Message format: see [`../docs/wire-format.md`](../docs/wire-format.md).
 
 ## Setup (Windows)

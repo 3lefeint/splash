@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -11,6 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
+	"github.com/3lefeint/splash/backend/internal/pitlane"
+	"github.com/3lefeint/splash/backend/internal/trackmap"
+	"github.com/3lefeint/splash/backend/internal/wear"
 	"github.com/3lefeint/splash/backend/internal/wire"
 )
 
@@ -129,7 +134,7 @@ func (p *Postgres) Laps(ctx context.Context, sessionID string) ([]LapRecord, err
 
 func (p *Postgres) Stops(ctx context.Context, sessionID string) ([]StopRecord, error) {
 	rows, err := p.pool.Query(ctx, `
-SELECT car_id, vehicle_name, entry_et, exit_et, fuel_added, tyres_changed, driver_swap
+SELECT car_id, vehicle_name, entry_et, exit_et, fuel_added, tyres_changed, driver_swap, stopped, work, fuel_time
 FROM stops WHERE session_id = $1 ORDER BY entry_et`, sessionID)
 	if err != nil {
 		return nil, err
@@ -138,7 +143,7 @@ FROM stops WHERE session_id = $1 ORDER BY entry_et`, sessionID)
 	var out []StopRecord
 	for rows.Next() {
 		s := StopRecord{SessionID: sessionID}
-		if err := rows.Scan(&s.CarID, &s.VehicleName, &s.EntryET, &s.ExitET, &s.FuelAdded, &s.TyresChanged, &s.DriverSwap); err != nil {
+		if err := rows.Scan(&s.CarID, &s.VehicleName, &s.EntryET, &s.ExitET, &s.FuelAdded, &s.TyresChanged, &s.DriverSwap, &s.Stopped, &s.Work, &s.FuelTime); err != nil {
 			return nil, err
 		}
 		out = append(out, s)
@@ -303,4 +308,317 @@ func scanLaps(rows pgx.Rows, sessionID string) ([]LapRecord, error) {
 		out = append(out, LapRecord{sessionID, l})
 	}
 	return out, rows.Err()
+}
+
+func (p *Postgres) GetTrackMap(ctx context.Context, track string) (trackmap.Map, bool, error) {
+	var m trackmap.Map
+	var points []byte
+	err := p.pool.QueryRow(ctx, `SELECT track, length, points FROM track_maps WHERE track = $1`, track).
+		Scan(&m.Track, &m.Length, &points)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return trackmap.Map{}, false, nil
+	}
+	if err != nil {
+		return trackmap.Map{}, false, err
+	}
+	if err := json.Unmarshal(points, &m.Points); err != nil {
+		return trackmap.Map{}, false, err
+	}
+	return m, true, nil
+}
+
+func (p *Postgres) SaveTrackMap(ctx context.Context, m trackmap.Map) error {
+	points, err := json.Marshal(m.Points)
+	if err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `
+INSERT INTO track_maps (track, length, points) VALUES ($1,$2,$3)
+ON CONFLICT (track) DO UPDATE SET length = EXCLUDED.length, points = EXCLUDED.points`, m.Track, m.Length, points)
+	return err
+}
+
+func (p *Postgres) DeleteTrackMap(ctx context.Context, track string) error {
+	_, err := p.pool.Exec(ctx, `DELETE FROM track_maps WHERE track = $1`, track)
+	return err
+}
+
+func (p *Postgres) ListTracks(ctx context.Context) ([]TrackInfo, error) {
+	rows, err := p.pool.Query(ctx, `SELECT track, length FROM track_maps ORDER BY track`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []TrackInfo{}
+	for rows.Next() {
+		var t TrackInfo
+		if err := rows.Scan(&t.Track, &t.Length); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) GetCorners(ctx context.Context, track string) ([]Corner, error) {
+	var raw []byte
+	err := p.pool.QueryRow(ctx, `SELECT corners FROM track_corners WHERE track = $1`, track).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return []Corner{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := []Corner{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (p *Postgres) SaveCorners(ctx context.Context, track string, corners []Corner) error {
+	raw, err := json.Marshal(corners)
+	if err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `
+INSERT INTO track_corners (track, corners) VALUES ($1,$2)
+ON CONFLICT (track) DO UPDATE SET corners = EXCLUDED.corners`, track, raw)
+	return err
+}
+
+func (p *Postgres) SaveLapWear(ctx context.Context, sessionID string, carID int, vehicleName string, w wear.LapWear) error {
+	loss, err := json.Marshal(w.Loss)
+	if err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `
+INSERT INTO wear_laps (session_id, car_id, vehicle_name, lap, coverage, loss) VALUES ($1,$2,$3,$4,$5,$6)
+ON CONFLICT (session_id, car_id, vehicle_name, lap) DO UPDATE SET coverage = EXCLUDED.coverage, loss = EXCLUDED.loss`,
+		sessionID, carID, vehicleName, w.Lap, w.Coverage, loss)
+	return err
+}
+
+func (p *Postgres) LapWears(ctx context.Context, sessionID string, carID int, vehicleName string) ([]wear.LapWear, error) {
+	rows, err := p.pool.Query(ctx, `
+SELECT lap, coverage, loss FROM wear_laps WHERE session_id = $1 AND car_id = $2 AND vehicle_name = $3 ORDER BY lap`,
+		sessionID, carID, vehicleName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []wear.LapWear
+	for rows.Next() {
+		var w wear.LapWear
+		var loss []byte
+		if err := rows.Scan(&w.Lap, &w.Coverage, &loss); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(loss, &w.Loss); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) AddStopped(ctx context.Context, sessionID string, carID int, vehicleName string, st Standing) error {
+	if st.To <= st.From {
+		return nil
+	}
+	_, err := p.pool.Exec(ctx, `
+UPDATE stops SET stopped = stopped + $5 - $4, work = work + $6, fuel_time = fuel_time + $7
+WHERE id = (SELECT id FROM stops
+            WHERE session_id = $1 AND car_id = $2 AND vehicle_name = $3 AND entry_et <= $4
+            ORDER BY entry_et DESC LIMIT 1)`, sessionID, carID, vehicleName, st.From, st.To, st.Work, st.FuelTime)
+	return err
+}
+
+func (p *Postgres) PitSetups(ctx context.Context, car string) ([]PitSetup, error) {
+	rows, err := p.pool.Query(ctx, `SELECT car, name, steps FROM pit_setups WHERE car = $1 ORDER BY seq`, car)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []PitSetup{}
+	for rows.Next() {
+		var s PitSetup
+		var steps []byte
+		if err := rows.Scan(&s.Car, &s.Name, &steps); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(steps, &s.Steps); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) SavePitSetup(ctx context.Context, s PitSetup) error {
+	steps, err := json.Marshal(s.Steps)
+	if err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `
+INSERT INTO pit_setups (car, name, steps) VALUES ($1,$2,$3)
+ON CONFLICT (car, name) DO UPDATE SET steps = EXCLUDED.steps`, s.Car, s.Name, steps)
+	return err
+}
+
+func (p *Postgres) DeletePitSetup(ctx context.Context, car, name string) error {
+	_, err := p.pool.Exec(ctx, `DELETE FROM pit_setups WHERE car = $1 AND name = $2`, car, name)
+	return err
+}
+
+func (p *Postgres) TouchSession(ctx context.Context, s SessionInfo) error {
+	_, err := p.pool.Exec(ctx, `
+INSERT INTO sessions (session_id, track, session_type, car, car_id, started_at, last_seen, last_et)
+VALUES ($1,$2,$3,$4,$7,$5,$5,$6)
+ON CONFLICT (session_id) DO UPDATE SET
+    track = COALESCE(NULLIF(EXCLUDED.track, ''), sessions.track),
+    session_type = COALESCE(NULLIF(EXCLUDED.session_type, ''), sessions.session_type),
+    car = COALESCE(NULLIF(EXCLUDED.car, ''), sessions.car),
+    car_id = CASE WHEN EXCLUDED.car_id >= 0 THEN EXCLUDED.car_id ELSE sessions.car_id END,
+    last_seen = EXCLUDED.last_seen,
+    last_et = EXCLUDED.last_et`,
+		s.SessionID, s.Track, s.SessionType, s.Car, s.LastSeen, s.LastET, s.CarID)
+	return err
+}
+
+func (p *Postgres) Sessions(ctx context.Context) ([]SessionSummary, error) {
+	rows, err := p.pool.Query(ctx, `
+SELECT s.session_id, s.track, s.session_type, s.car, s.car_id, s.started_at, s.last_seen, s.last_et,
+  (SELECT count(*) FROM laps l WHERE l.session_id = s.session_id AND l.vehicle_name = s.car AND (s.car_id < 0 OR l.car_id = s.car_id)),
+  (SELECT count(*) FROM stops t WHERE t.session_id = s.session_id AND t.vehicle_name = s.car AND (s.car_id < 0 OR t.car_id = s.car_id)),
+  (SELECT count(*) FROM lap_conditions c WHERE c.session_id = s.session_id),
+  (SELECT count(*) FROM lap_conditions c WHERE c.session_id = s.session_id AND c.control = 1),
+  (SELECT count(*) FROM lap_conditions c WHERE c.session_id = s.session_id AND c.control = 0)
+FROM sessions s ORDER BY s.last_seen DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SessionSummary{}
+	for rows.Next() {
+		var s SessionSummary
+		if err := rows.Scan(&s.SessionID, &s.Track, &s.SessionType, &s.Car, &s.CarID, &s.StartedAt, &s.LastSeen, &s.LastET,
+			&s.Laps, &s.Stops, &s.Conditions, &s.AILaps, &s.PlayerLaps); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) SaveLapConditions(ctx context.Context, c LapConditions) error {
+	arr := func(v []float64) []byte {
+		if v == nil {
+			return nil
+		}
+		b, _ := json.Marshal(v)
+		return b
+	}
+	_, err := p.pool.Exec(ctx, `
+INSERT INTO lap_conditions (session_id, car_id, vehicle_name, lap, et, control, ambient, track, rain, wetness,
+  surface, inner_temp, pressure, brake, water, oil, compound_front, compound_rear)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+ON CONFLICT (session_id, car_id, vehicle_name, lap) DO UPDATE SET
+  et = EXCLUDED.et, control = EXCLUDED.control, ambient = EXCLUDED.ambient, track = EXCLUDED.track,
+  rain = EXCLUDED.rain, wetness = EXCLUDED.wetness, surface = EXCLUDED.surface, inner_temp = EXCLUDED.inner_temp,
+  pressure = EXCLUDED.pressure, brake = EXCLUDED.brake, water = EXCLUDED.water, oil = EXCLUDED.oil,
+  compound_front = EXCLUDED.compound_front, compound_rear = EXCLUDED.compound_rear`,
+		c.SessionID, c.CarID, c.VehicleName, c.Lap, c.ET, c.Control, c.Ambient, c.Track, c.Rain, c.Wetness,
+		arr(c.Surface), arr(c.Inner), arr(c.Pressure), arr(c.Brake), c.Water, c.Oil, c.CompoundFront, c.CompoundRear)
+	return err
+}
+
+func (p *Postgres) LapConditions(ctx context.Context, sessionID string) ([]LapConditions, error) {
+	rows, err := p.pool.Query(ctx, `
+SELECT car_id, vehicle_name, lap, et, control, ambient, track, rain, wetness, surface, inner_temp, pressure, brake,
+  water, oil, compound_front, compound_rear
+FROM lap_conditions WHERE session_id = $1 ORDER BY car_id, lap`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LapConditions
+	for rows.Next() {
+		c := LapConditions{SessionID: sessionID}
+		var ctrl *int16
+		var surface, inner, pressure, brake []byte
+		if err := rows.Scan(&c.CarID, &c.VehicleName, &c.Lap, &c.ET, &ctrl, &c.Ambient, &c.Track, &c.Rain, &c.Wetness,
+			&surface, &inner, &pressure, &brake, &c.Water, &c.Oil, &c.CompoundFront, &c.CompoundRear); err != nil {
+			return nil, err
+		}
+		if ctrl != nil {
+			v := int(*ctrl)
+			c.Control = &v
+		}
+		for dst, raw := range map[*[]float64][]byte{&c.Surface: surface, &c.Inner: inner, &c.Pressure: pressure, &c.Brake: brake} {
+			if len(raw) > 0 {
+				if err := json.Unmarshal(raw, dst); err != nil {
+					return nil, err
+				}
+			}
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) SaveWeatherPoint(ctx context.Context, sessionID string, w WeatherPoint) error {
+	_, err := p.pool.Exec(ctx, `
+INSERT INTO weather_points (session_id, et, ambient, track, rain, wetness) VALUES ($1,$2,$3,$4,$5,$6)
+ON CONFLICT (session_id, et) DO UPDATE SET ambient = EXCLUDED.ambient, track = EXCLUDED.track,
+  rain = EXCLUDED.rain, wetness = EXCLUDED.wetness`, sessionID, w.ET, w.Ambient, w.Track, w.Rain, w.Wetness)
+	return err
+}
+
+func (p *Postgres) WeatherPoints(ctx context.Context, sessionID string, limit int) ([]WeatherPoint, error) {
+	rows, err := p.pool.Query(ctx, `
+SELECT et, ambient, track, rain, wetness FROM (
+  SELECT et, ambient, track, rain, wetness FROM weather_points WHERE session_id = $1 ORDER BY et DESC LIMIT $2
+) newest ORDER BY et`, sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WeatherPoint
+	for rows.Next() {
+		var w WeatherPoint
+		if err := rows.Scan(&w.ET, &w.Ambient, &w.Track, &w.Rain, &w.Wetness); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) GetPitLane(ctx context.Context, track string) (pitlane.Lane, bool, error) {
+	var data []byte
+	err := p.pool.QueryRow(ctx, `SELECT data FROM track_pits WHERE track = $1`, track).Scan(&data)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pitlane.Lane{}, false, nil
+	}
+	if err != nil {
+		return pitlane.Lane{}, false, err
+	}
+	var l pitlane.Lane
+	if err := json.Unmarshal(data, &l); err != nil {
+		return pitlane.Lane{}, false, err
+	}
+	l.Track = track
+	return l, true, nil
+}
+
+func (p *Postgres) SavePitLane(ctx context.Context, l pitlane.Lane) error {
+	data, err := json.Marshal(l)
+	if err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `
+INSERT INTO track_pits (track, data) VALUES ($1,$2)
+ON CONFLICT (track) DO UPDATE SET data = EXCLUDED.data`, l.Track, data)
+	return err
 }

@@ -26,6 +26,7 @@ class Link:
         self._live: dict[str, str] = {}
         self._wake = asyncio.Event()
         self.connected = False
+        self.on_command = None  # called with each command of the backend
 
     def notify(self) -> None:
         self._wake.set()
@@ -83,6 +84,11 @@ class Link:
 
     async def _read_acks(self, ws) -> None:
         async for raw in ws:
+            msg = json.loads(raw)
+            if msg.get("type") == "command":
+                if self.on_command is not None:
+                    self.on_command(msg)
+                continue
             self.spool.prune(_ack_seq(raw))
 
 

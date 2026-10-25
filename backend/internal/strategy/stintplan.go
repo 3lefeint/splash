@@ -47,6 +47,9 @@ type PlanEntry struct {
 	Done       bool    `json:"done"`
 	Current    bool    `json:"current"`
 	DriverSwap bool    `json:"driver_swap"` // driver differs from the previous stint
+	// Reserve marks a stint that is not needed to reach the finish with the current times. It keeps its planned
+	// duration and does not take part in the scaling; it stays visible in case the race develops differently.
+	Reserve bool `json:"reserve"`
 }
 
 // PlanResult is the recomputed plan.
@@ -95,14 +98,44 @@ func Reschedule(in PlanInput) (PlanResult, error) {
 		return res, nil
 	}
 	start := in.Current.ExpectedEnd + in.PitLoss
-	available := in.RaceEnd - start - in.PitLoss*float64(len(rest)-1)
-	durations, shortfall := scale(rest, available, in.MaxStint)
+	needed := neededStints(rest, in.RaceEnd-start, in.PitLoss)
+	var durations []float64
+	var shortfall float64
+	for {
+		available := in.RaceEnd - start - in.PitLoss*float64(needed-1)
+		durations, shortfall = scale(rest[:needed], available, in.MaxStint)
+		if shortfall <= 0 || needed == len(rest) {
+			break
+		}
+		needed++ // the cap on the stint length leaves time over: the next stint is needed after all
+	}
 	res.Shortfall = shortfall
-	for i, p := range rest {
+	for i, p := range rest[:needed] {
 		add(PlanEntry{No: nDone + 2 + i, Driver: p.Driver, Start: start, End: start + durations[i]})
 		start += durations[i] + in.PitLoss
 	}
+	// The next stints stay in the list as reserve, with their planned duration, behind the finish.
+	for i := needed; i < len(rest) && i < needed+ReserveStints; i++ {
+		add(PlanEntry{No: nDone + 2 + i, Driver: rest[i].Driver, Start: start, End: start + rest[i].Duration, Reserve: true})
+		start += rest[i].Duration + in.PitLoss
+	}
 	return res, nil
+}
+
+// ReserveStints is the number of stints shown after the last needed one.
+const ReserveStints = 2
+
+// neededStints is the number of stints at the front of the list whose planned duration reaches the end of the
+// race, at least one. When the whole list is shorter than the race every stint is needed and gets scaled up.
+func neededStints(rest []PlannedStint, time, pitLoss float64) int {
+	var sum float64
+	for i, p := range rest {
+		sum += p.Duration
+		if sum >= time-pitLoss*float64(i) {
+			return i + 1
+		}
+	}
+	return len(rest)
 }
 
 // scale distributes available seconds over the stints proportionally to their

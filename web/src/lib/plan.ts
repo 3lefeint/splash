@@ -19,7 +19,7 @@ export function nextEntry(state: State): PlanEntry | undefined {
 
 /** The next stint of `driver` that has not ended yet, current or future. */
 export function nextStintOf(state: State, driver: string): PlanEntry | undefined {
-  return state.stint_plan?.entries.find((e) => !e.done && e.driver === driver);
+  return state.stint_plan?.entries.find((e) => !e.done && !e.reserve && e.driver === driver);
 }
 
 export function drivers(rows: PlanRow[]): string[] {
@@ -41,7 +41,7 @@ function csvCell(v: string): string {
  * duration, and the status. Semicolons separate the columns so it opens directly in spreadsheet tools of
  * German locale.
  */
-export function toCsv(state: State, nowMs: number, labels: { done: string; current: string; planned: string }): string {
+export function toCsv(state: State, nowMs: number, labels: { done: string; current: string; planned: string; reserve: string }): string {
   const rows = [['No', 'Driver', 'Start', 'End', 'Race time start', 'Duration', 'Status']];
   for (const e of state.stint_plan?.entries ?? []) {
     rows.push([
@@ -51,7 +51,7 @@ export function toCsv(state: State, nowMs: number, labels: { done: string; curre
       clockAt(e.end, state.et, nowMs),
       duration(e.start),
       duration(e.end - e.start),
-      e.done ? labels.done : e.current ? labels.current : labels.planned,
+      e.done ? labels.done : e.current ? labels.current : e.reserve ? labels.reserve : labels.planned,
     ]);
   }
   return rows.map((r) => r.map(csvCell).join(';')).join('\r\n') + '\r\n';

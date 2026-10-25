@@ -214,3 +214,79 @@ func TestOpponentGapsAndTrend(t *testing.T) {
 		t.Fatalf("trend changed without a new lap: %v", *st.Opponents.Ahead.Trend)
 	}
 }
+
+func TestFieldPlacesCarsOnTheTrack(t *testing.T) {
+	r := newRig()
+	d1, d2 := 120.5, 900.0
+	me, other := vehicle(0, "me", "GT3", 1, 0), vehicle(1, "rival", "GT3", 2, 3)
+	me.LapDist, other.LapDist = &d1, &d2
+	r.setLive(100, 50, 3, me, other, vehicle(2, "nopos", "GT3", 3, 5))
+	snap := r.eng.Live.Snapshot()
+	snap.Scoring.TrackLength = 2000
+	r.eng.Live.UpdateScoring("s1", 101, *snap.Scoring)
+	st, err := r.eng.Compute(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.TrackLength != 2000 || len(st.Field) != 2 {
+		t.Fatalf("length=%v field=%+v", st.TrackLength, st.Field)
+	}
+	if !st.Field[0].Ours || st.Field[1].Ours || st.Field[1].LapDist != 900 {
+		t.Fatalf("%+v", st.Field)
+	}
+}
+
+func TestWeatherHistoryAndTyres(t *testing.T) {
+	r := newRig()
+	w := &wire.Weather{AmbientTemp: fp(20), TrackTemp: fp(30), Rain: fp(0), Wetness: fp(0)}
+	for i, et := range []float64{100, 130, 170, 230} { // 130 is too soon after 100
+		w.TrackTemp = fp(30 + float64(i))
+		r.lv.UpdateScoring(sess, et, wire.Scoring{Track: "monza", EndET: 10000, Weather: w,
+			Vehicles: []wire.ScoringVehicle{vehicle(0, "me", "GT3", 1, 0)}})
+		r.lv.UpdateTelemetry(sess, et, wire.Telemetry{CarID: 0, VehicleName: "me", Lap: 1, Fuel: 50, FuelCapacity: 90,
+			Wear: []float64{1, 1, 1, 1}, TyrePressure: []float64{180, 181, 182, 183},
+			TyreSurfaceTemp: [][]float64{{80, 85, 82}, {80, 85, 82}, {80, 85, 82}, {80, 85, 82}}})
+		st, err := r.eng.Compute(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if et == 230 {
+			if st.Weather == nil || len(st.Weather.History) != 3 || *st.Weather.Track != 33 {
+				t.Fatalf("%+v", st.Weather)
+			}
+			if st.Weather.History[1].ET != 170 || *st.Weather.History[2].Track != 33 {
+				t.Fatalf("%+v", st.Weather.History)
+			}
+			if st.Tyres == nil || st.Tyres.Pressure[3] != 183 || st.Tyres.Surface[0][1] != 85 {
+				t.Fatalf("%+v", st.Tyres)
+			}
+		}
+	}
+}
+
+func TestNoTyreBlockWithoutTemperatures(t *testing.T) {
+	r := newRig()
+	r.setLive(100, 50, 3, vehicle(0, "me", "GT3", 1, 0))
+	st, _ := r.eng.Compute(context.Background())
+	if st.Tyres != nil {
+		t.Fatal("unexpected tyre block")
+	}
+}
+
+func TestStintPlanStartsAtZeroWhenTheBackendMissedTheFirstStint(t *testing.T) {
+	ctx := context.Background()
+	r := newRig()
+	r.laps(10)
+	r.st.SetStintPlan(ctx, []store.PlanRow{{Driver: "a", Duration: 3000}, {Driver: "b", Duration: 3000}})
+	// The backend saw its first telemetry only at 5000, after the first stop at 3000.
+	r.st.SaveEvent(ctx, sess, 3000, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "me"})
+	r.st.SaveEvent(ctx, sess, 3040, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "me"})
+	r.setLive(5000, 60, 11, vehicle(0, "me", "GT3", 1, 0))
+	st, err := r.eng.Compute(ctx)
+	if err != nil || st.StintPlan == nil {
+		t.Fatalf("st=%+v err=%v", st, err)
+	}
+	if e := st.StintPlan.Entries[0]; e.Start != 0 || e.End != 3000 {
+		t.Fatalf("stint 1: %+v", e)
+	}
+}

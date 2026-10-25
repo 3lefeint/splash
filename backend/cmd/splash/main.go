@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"github.com/3lefeint/splash/backend/internal/api"
+	"github.com/3lefeint/splash/backend/internal/commands"
 	"github.com/3lefeint/splash/backend/internal/engine"
 	"github.com/3lefeint/splash/backend/internal/ingest"
 	"github.com/3lefeint/splash/backend/internal/live"
-	"github.com/3lefeint/splash/backend/internal/webui"
+	"github.com/3lefeint/splash/backend/internal/segments"
 	"github.com/3lefeint/splash/backend/internal/store"
+	"github.com/3lefeint/splash/backend/internal/webui"
 )
 
 func main() {
@@ -53,11 +55,23 @@ func run(log *slog.Logger) error {
 	}
 
 	lv := &live.State{}
-	a := api.New(st, engine.New(st, lv))
+	cmds := commands.New()
+	eng := engine.New(st, lv)
+	eng.Commands = cmds
+	eng.Log = log
+	a := api.New(st, eng)
+	a.Cmds = cmds
 	go a.Hub.Run(ctx)
 
 	mux := http.NewServeMux()
-	mux.Handle(ingest.Path, ingest.New(st, lv, token, log))
+	ing := ingest.New(st, lv, token, log)
+	ing.Maps = ingest.NewMapRecorder(st, log)
+	ing.Cmds = cmds
+	ing.Pits = ingest.NewPitRecorder(st, log)
+	ing.Field, ing.Own = &segments.Recorder{}, &segments.Recorder{}
+	eng.Field, eng.Own, eng.Pits = ing.Field, ing.Own, ing.Pits
+	a.MapProgress = ing.Maps.Progress
+	mux.Handle(ingest.Path, ing)
 	a.Register(mux)
 	mux.Handle("/", webui.Handler()) // the frontend; everything more specific above wins
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })

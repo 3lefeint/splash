@@ -18,6 +18,9 @@
     },
     {
       "$ref": "#/$defs/event"
+    },
+    {
+      "$ref": "#/$defs/command_result"
     }
   ],
   "$defs": {
@@ -44,7 +47,8 @@
             "scoring",
             "telemetry",
             "lap",
-            "event"
+            "event",
+            "command_result"
           ]
         },
         "agent_id": {
@@ -131,6 +135,11 @@
                 "track": {
                   "type": "string"
                 },
+                "track_length": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "Length of one lap in metres (mLapDist of the scoring info)."
+                },
                 "session_type": {
                   "type": "string"
                 },
@@ -158,6 +167,18 @@
                       "type": "number",
                       "minimum": 0,
                       "maximum": 1
+                    },
+                    "wetness": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "Average wetness on the racing line (mAvgPathWetness)."
+                    },
+                    "dark_cloud": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "Cloud darkness (mDarkCloud)."
                     }
                   },
                   "additionalProperties": false
@@ -245,6 +266,19 @@
         "in_pits": {
           "type": "boolean"
         },
+        "lap_dist": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Distance along the lap in metres (mLapDist)."
+        },
+        "x": {
+          "type": "number",
+          "description": "World position x in metres (mPos)."
+        },
+        "z": {
+          "type": "number",
+          "description": "World position z in metres (mPos)."
+        },
         "pit_state": {
           "type": "integer"
         },
@@ -275,6 +309,40 @@
             2
           ],
           "description": "mControl: -1 nobody, 0 local player, 1 local AI, 2 remote."
+        },
+        "fuel": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Fuel in litres, from the telemetry slot of the car."
+        },
+        "fuel_capacity": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Tank capacity in litres."
+        },
+        "wear": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "description": "Wear value of each tyre (fl, fr, rl, rr) as the game reports it; 1 is new."
+        },
+        "penalties": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of penalties of the car."
+        },
+        "path_lateral": {
+          "type": "number",
+          "description": "Lateral position of the car relative to the track centre line in metres."
+        },
+        "track_edge": {
+          "type": "number",
+          "description": "Distance from the centre line to the track edge at the position of the car in metres."
         }
       },
       "additionalProperties": false
@@ -346,6 +414,119 @@
                     "type": "number"
                   },
                   "description": "Carcass temperature fl, fr, rl, rr in degrees Celsius (the plugin delivers Kelvin)."
+                },
+                "tyre_surface_temp": {
+                  "type": "array",
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                      "type": "number"
+                    },
+                    "description": "left, centre, right"
+                  },
+                  "description": "Surface temperature per wheel (fl, fr, rl, rr) and position (left, centre, right of the tread, not inside/outside) in degrees Celsius."
+                },
+                "tyre_inner_temp": {
+                  "type": "array",
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                      "type": "number"
+                    },
+                    "description": "left, centre, right"
+                  },
+                  "description": "Inner rubber layer temperature per wheel and position in degrees Celsius."
+                },
+                "tyre_pressure": {
+                  "type": "array",
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "Tyre pressure fl, fr, rl, rr in kPa."
+                },
+                "brake_temp": {
+                  "type": "array",
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "Brake disc temperature fl, fr, rl, rr in degrees Celsius."
+                },
+                "engine_water_temp": {
+                  "type": "number",
+                  "description": "Engine water temperature in degrees Celsius."
+                },
+                "engine_oil_temp": {
+                  "type": "number",
+                  "description": "Engine oil temperature in degrees Celsius."
+                },
+                "compound_front": {
+                  "type": "string",
+                  "description": "Name of the front tyre compound."
+                },
+                "compound_rear": {
+                  "type": "string",
+                  "description": "Name of the rear tyre compound."
+                },
+                "pit_menu": {
+                  "type": "object",
+                  "description": "The row of the pit menu that is selected in the game.",
+                  "required": [
+                    "category",
+                    "choice",
+                    "choice_index",
+                    "choices"
+                  ],
+                  "properties": {
+                    "category": {
+                      "type": "string",
+                      "description": "Name of the menu row, e.g. FUEL:."
+                    },
+                    "choice": {
+                      "type": "string",
+                      "description": "Selected value of the row as the game shows it."
+                    },
+                    "choice_index": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "choices": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "dent_max": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2,
+                  "description": "Largest dent severity over the body areas: 0 none, 1 some, 2 heavy."
+                },
+                "overheating": {
+                  "type": "boolean",
+                  "description": "The engine is overheating."
+                },
+                "detached": {
+                  "type": "boolean",
+                  "description": "A body part has come off."
+                },
+                "brake": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "Unfiltered brake pedal position."
                 }
               },
               "additionalProperties": false
@@ -529,6 +710,114 @@
           "type": "integer",
           "minimum": 0,
           "description": "Highest seq stored by the backend; the agent may drop everything up to it from its send queue."
+        }
+      },
+      "additionalProperties": false
+    },
+    "command_result": {
+      "title": "Result of a command",
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "command_result"
+            },
+            "payload": {
+              "type": "object",
+              "required": [
+                "id",
+                "ok",
+                "message"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Id of the command this answers."
+                },
+                "ok": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string",
+                  "description": "ok, or why the command failed."
+                },
+                "applied": {
+                  "type": "array",
+                  "description": "Pit menu rows that were set before the command ended.",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "category",
+                      "choice"
+                    ],
+                    "properties": {
+                      "category": {
+                        "type": "string"
+                      },
+                      "choice": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "command": {
+      "title": "Backend to agent command",
+      "description": "Asks the driver agent to set rows of the pit menu (kind pit_menu, the default) or to toggle the pit request (kind pit_request).",
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "required": [
+              "category",
+              "choice"
+            ],
+            "properties": {
+              "category": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Pit menu row, e.g. FUEL: or TIRES:."
+              },
+              "choice": {
+                "type": "string",
+                "minLength": 1,
+                "description": "max, min, a number (litres) or a text the choice contains (e.g. Medium)."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "kind": {
+          "enum": [
+            "pit_menu",
+            "pit_request"
+          ]
         }
       },
       "additionalProperties": false

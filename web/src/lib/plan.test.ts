@@ -56,13 +56,14 @@ describe('generate', () => {
 describe('toCsv', () => {
   it('writes a header, one row per stint and escapes cells', () => {
     const csv = toCsv(
-      state([entry(1, 'a;b', 0, 3600, { done: true }), entry(2, 'c"d', 3700, 7300, { current: true })]),
+      state([entry(1, 'a;b', 0, 3600, { done: true }), entry(2, 'c"d', 3700, 7300, { current: true }), entry(3, 'e', 7400, 11000, { reserve: true })]),
       new Date(2026, 0, 1, 12, 0, 0).getTime(),
-      { done: 'done', current: 'running', planned: 'planned' },
+      { done: 'done', current: 'running', planned: 'planned', reserve: 'reserve' },
     );
     const lines = csv.trimEnd().split('\r\n');
     expect(lines[0]).toBe('No;Driver;Start;End;Race time start;Duration;Status');
-    expect(lines).toHaveLength(3);
+    expect(lines).toHaveLength(4);
+    expect(lines[3].endsWith(';reserve')).toBe(true);
     expect(lines[1].startsWith('1;"a;b";')).toBe(true);
     expect(lines[1].endsWith(';done')).toBe(true);
     expect(lines[2]).toContain('"c""d"');

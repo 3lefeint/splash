@@ -66,7 +66,7 @@
 
   function exportCsv() {
     if (!s) return;
-    const csv = toCsv(s, Date.now(), { done: t('plan.done'), current: t('plan.current'), planned: t('plan.planned') });
+    const csv = toCsv(s, Date.now(), { done: t('plan.done'), current: t('plan.current'), planned: t('plan.planned'), reserve: t('plan.reserve') });
     const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
@@ -98,18 +98,19 @@
       </thead>
       <tbody>
         {#each entries as e (e.no)}
-          <tr class:done={e.done} class:current={e.current}>
+          <tr class:done={e.done} class:current={e.current} class:reserve={e.reserve}>
             <td class="num">{e.no}</td>
             <td>{e.driver}{#if e.driver_swap && !e.done}<span class="swap" title={t('plan.swap')}>⇄</span>{/if}</td>
             <td class="num">{clockAt(e.start, live.etNow, live.nowMs)}</td>
             <td class="num">{clockAt(e.end, live.etNow, live.nowMs)}</td>
             <td class="num">{duration(e.end - e.start)}</td>
-            <td>{e.done ? t('plan.done') : e.current ? t('plan.current') : t('plan.planned')}</td>
+            <td>{e.done ? t('plan.done') : e.current ? t('plan.current') : e.reserve ? t('plan.reserve') : t('plan.planned')}</td>
           </tr>
         {/each}
       </tbody>
     </table>
   </div>
+  {#if entries.some((e) => e.reserve)}<p class="muted small">{t('plan.reserveHint')}</p>{/if}
 {/if}
 
 <section class="edit no-print">
@@ -148,6 +149,8 @@
 </section>
 
 <style>
+  tr.reserve { opacity: 0.45; font-style: italic; }
+  .small { font-size: 0.8rem; }
   .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .scroll { overflow-x: auto; margin: 8px 0 24px; }

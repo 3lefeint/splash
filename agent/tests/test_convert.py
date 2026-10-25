@@ -1,3 +1,4 @@
+import pytest
 import math
 
 from splash_agent import convert as cv
@@ -54,3 +55,36 @@ def test_telemetry_payload_rejects_unusable_values():
     assert cv.telemetry_payload(fakes.telemetry([{"cap": 0.0}]).mVehicles[0], 0, "car", None) is None
     assert cv.telemetry_payload(fakes.telemetry([{"fuel": -1.0}]).mVehicles[0], 0, "car", None) is None
     assert cv.telemetry_payload(fakes.telemetry([{"wear": [math.nan] * 4}]).mVehicles[0], 0, "car", None) is None
+
+
+def test_scoring_payload_carries_positions_and_track_length():
+    s = fakes.scoring([{"dist": 321.5}], mLapDist=2000.0)
+    veh = s.mVehicles[0]
+    veh.mPos.x, veh.mPos.z = 12.5, -40.25
+    p = cv.scoring_payload(s.mScoringInfo, [veh])
+    assert p["track_length"] == 2000.0
+    assert (p["vehicles"][0]["lap_dist"], p["vehicles"][0]["x"], p["vehicles"][0]["z"]) == (321.5, 12.5, -40.25)
+
+
+def test_telemetry_payload_carries_tyre_brake_and_engine_values():
+    t = fakes.telemetry([{"fuel": 40.0}])
+    p = cv.telemetry_payload(t.mVehicles[0], 0, "car", 1.0)
+    assert p["tyre_surface_temp"][1] == [pytest.approx(90.0), pytest.approx(91.0), pytest.approx(92.0)]
+    assert p["tyre_inner_temp"][0][0] == pytest.approx(70.0)
+    assert p["tyre_pressure"] == [180.0, 181.0, 182.0, 183.0] and p["brake_temp"][3] == 403.0
+    assert p["engine_water_temp"] == 90.0 and p["engine_oil_temp"] == 100.0 and p["compound_front"] == "Medium"
+    assert "compound_rear" not in p
+
+
+def test_missing_game_values_are_left_out():
+    t = fakes.telemetry([{"fuel": 40.0}])
+    t.mVehicles[0].mWheels[2].mPressure = 0.0
+    t.mVehicles[0].mEngineWaterTemp = float("nan")
+    p = cv.telemetry_payload(t.mVehicles[0], 0, "car", None)
+    assert "tyre_pressure" not in p and "engine_water_temp" not in p and "tyre_surface_temp" in p
+
+
+def test_weather_carries_wetness():
+    s = fakes.scoring([{}], mAvgPathWetness=0.4, mDarkCloud=0.25)
+    w = cv.scoring_payload(s.mScoringInfo, [s.mVehicles[0]])["weather"]
+    assert w["wetness"] == 0.4 and w["dark_cloud"] == 0.25

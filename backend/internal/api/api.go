@@ -12,8 +12,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/3lefeint/splash/backend/internal/commands"
 	"github.com/3lefeint/splash/backend/internal/engine"
 	"github.com/3lefeint/splash/backend/internal/store"
+	"github.com/3lefeint/splash/backend/internal/trackmap"
+	"github.com/3lefeint/splash/backend/internal/wire"
 )
 
 const (
@@ -29,6 +32,10 @@ type API struct {
 	Store  store.Store
 	Engine *engine.Engine
 	Hub    *Hub
+	// Cmds sends pit setups to the driver agent. Nil answers with 503.
+	Cmds *commands.Hub
+	// MapProgress returns the track outline recorded so far. Nil answers with 404.
+	MapProgress func(track string) *trackmap.Progress
 }
 
 // New returns an API with a Hub that pushes the state every second.
@@ -44,6 +51,19 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/params", a.putParams)
 	mux.HandleFunc("GET /api/stint-plan", a.getPlan)
 	mux.HandleFunc("PUT /api/stint-plan", a.putPlan)
+	mux.HandleFunc("GET /api/track-map", a.getTrackMap)
+	mux.HandleFunc("DELETE /api/track-map", a.deleteTrackMap)
+	mux.HandleFunc("GET /api/tracks", a.listTracks)
+	mux.HandleFunc("GET /api/track-corners", a.getCorners)
+	mux.HandleFunc("PUT /api/track-corners", a.putCorners)
+	mux.HandleFunc("GET /api/track-map/progress", a.getMapProgress)
+	mux.HandleFunc("GET /api/pit-setups", a.getPitSetups)
+	mux.HandleFunc("PUT /api/pit-setups", a.putPitSetup)
+	mux.HandleFunc("DELETE /api/pit-setups", a.deletePitSetup)
+	mux.HandleFunc("POST /api/pit-setups/apply", a.applyPitSetup)
+	mux.HandleFunc("POST /api/pit-request", a.pitRequest)
+	mux.HandleFunc("GET /api/sessions", a.getSessions)
+	mux.HandleFunc("GET /api/sessions/{id}/export", a.exportSession)
 	mux.HandleFunc("GET /api/overrides", a.getOverrides)
 	mux.HandleFunc("PUT /api/overrides/{key}", a.putOverride)
 	mux.HandleFunc("DELETE /api/overrides/{key}", a.deleteOverride)
@@ -351,5 +371,218 @@ func (h *Hub) Run(ctx context.Context) {
 			}
 		}
 		h.mu.Unlock()
+	}
+}
+
+func (a *API) getTrackMap(w http.ResponseWriter, r *http.Request) {
+	track := r.URL.Query().Get("track")
+	if track == "" {
+		fail(w, http.StatusBadRequest, "track is required")
+		return
+	}
+	m, ok, err := a.Store.GetTrackMap(r.Context(), track)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if !ok {
+		fail(w, http.StatusNotFound, "no map for this track yet")
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
+}
+
+// deleteTrackMap removes the stored outline so the next clean lap records a new one.
+func (a *API) deleteTrackMap(w http.ResponseWriter, r *http.Request) {
+	track := r.URL.Query().Get("track")
+	if track == "" {
+		fail(w, http.StatusBadRequest, "track is required")
+		return
+	}
+	if err := a.Store.DeleteTrackMap(r.Context(), track); err != nil {
+		serverError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// listTracks names the tracks that have a stored outline, for the track editor.
+func (a *API) listTracks(w http.ResponseWriter, r *http.Request) {
+	list, err := a.Store.ListTracks(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (a *API) getCorners(w http.ResponseWriter, r *http.Request) {
+	track := r.URL.Query().Get("track")
+	if track == "" {
+		fail(w, http.StatusBadRequest, "track is required")
+		return
+	}
+	list, err := a.Store.GetCorners(r.Context(), track)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// putCorners replaces the corner names of a track. The list is kept in the order it was sent.
+func (a *API) putCorners(w http.ResponseWriter, r *http.Request) {
+	track := r.URL.Query().Get("track")
+	if track == "" {
+		fail(w, http.StatusBadRequest, "track is required")
+		return
+	}
+	var list []store.Corner
+	if !decode(w, r, &list) {
+		return
+	}
+	if len(list) > maxCorners {
+		fail(w, http.StatusBadRequest, "too many corners")
+		return
+	}
+	for _, c := range list {
+		if c.Name == "" || len(c.Name) > maxNameLen {
+			fail(w, http.StatusBadRequest, "every corner needs a name of at most 40 characters")
+			return
+		}
+		for _, d := range []*float64{c.From, c.To} {
+			if d != nil && !(*d >= 0 && *d <= maxLapDist) {
+				fail(w, http.StatusBadRequest, "a distance must be between 0 and 100000 metres")
+				return
+			}
+		}
+		if c.Label != nil && !(math.Abs(c.Label[0]) <= maxWorld && math.Abs(c.Label[1]) <= maxWorld) {
+			fail(w, http.StatusBadRequest, "the label position is out of range")
+			return
+		}
+	}
+	if list == nil {
+		list = []store.Corner{}
+	}
+	if err := a.Store.SaveCorners(r.Context(), track, list); err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+const (
+	maxCorners    = 200
+	maxLapDist    = 100000
+	maxWorld      = 1e6
+	maxSetupSteps = 16
+	maxNameLen    = 40
+)
+
+func validSteps(steps []wire.Step) string {
+	if len(steps) == 0 || len(steps) > maxSetupSteps {
+		return fmt.Sprintf("1 to %d steps are required", maxSetupSteps)
+	}
+	for i, st := range steps {
+		if st.Category == "" || st.Choice == "" || len(st.Category) > maxNameLen || len(st.Choice) > maxNameLen {
+			return fmt.Sprintf("step %d: category and choice are required (at most %d characters)", i+1, maxNameLen)
+		}
+	}
+	return ""
+}
+
+func (a *API) getPitSetups(w http.ResponseWriter, r *http.Request) {
+	list, err := a.Store.PitSetups(r.Context(), r.URL.Query().Get("car"))
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (a *API) putPitSetup(w http.ResponseWriter, r *http.Request) {
+	var s store.PitSetup
+	if !decode(w, r, &s) {
+		return
+	}
+	if s.Car == "" || s.Name == "" || len(s.Name) > maxNameLen {
+		fail(w, http.StatusBadRequest, "car and a name of at most 40 characters are required")
+		return
+	}
+	if msg := validSteps(s.Steps); msg != "" {
+		fail(w, http.StatusBadRequest, msg)
+		return
+	}
+	if err := a.Store.SavePitSetup(r.Context(), s); err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s)
+}
+
+func (a *API) deletePitSetup(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if err := a.Store.DeletePitSetup(r.Context(), q.Get("car"), q.Get("name")); err != nil {
+		serverError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) applyPitSetup(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name  string      `json:"name"`
+		Steps []wire.Step `json:"steps"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if msg := validSteps(req.Steps); msg != "" {
+		fail(w, http.StatusBadRequest, msg)
+		return
+	}
+	if a.Cmds == nil {
+		fail(w, http.StatusServiceUnavailable, "commands are not available")
+		return
+	}
+	id, err := a.Cmds.Send(r.Context(), req.Name, req.Steps)
+	switch {
+	case errors.Is(err, commands.ErrNoDriver), errors.Is(err, commands.ErrBusy):
+		fail(w, http.StatusConflict, err.Error())
+	case err != nil:
+		serverError(w, err)
+	default:
+		writeJSON(w, http.StatusAccepted, map[string]string{"id": id})
+	}
+}
+
+func (a *API) getMapProgress(w http.ResponseWriter, r *http.Request) {
+	if a.MapProgress != nil {
+		if p := a.MapProgress(r.URL.Query().Get("track")); p != nil {
+			writeJSON(w, http.StatusOK, p)
+			return
+		}
+	}
+	fail(w, http.StatusNotFound, "no outline is being recorded")
+}
+
+// pitRequest toggles the pit request of the driven car through the driver agent.
+func (a *API) pitRequest(w http.ResponseWriter, r *http.Request) {
+	if a.Cmds == nil {
+		fail(w, http.StatusServiceUnavailable, "commands are not available")
+		return
+	}
+	name := r.URL.Query().Get("name")
+	if name == "" || len(name) > maxNameLen {
+		name = "pit request"
+	}
+	id, err := a.Cmds.PitRequest(r.Context(), name)
+	switch {
+	case errors.Is(err, commands.ErrNoDriver), errors.Is(err, commands.ErrBusy):
+		fail(w, http.StatusConflict, err.Error())
+	case err != nil:
+		serverError(w, err)
+	default:
+		writeJSON(w, http.StatusAccepted, map[string]string{"id": id})
 	}
 }
