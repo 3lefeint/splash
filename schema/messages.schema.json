@@ -1,0 +1,537 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://splash.invalid/schema/messages.schema.json",
+  "title": "Splash agent message",
+  "description": "One NDJSON line / one WebSocket text frame sent by an agent to the backend. Field names for game data must be verified against the plugin header (rF2State.h / rF2data.cs).",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/hello"
+    },
+    {
+      "$ref": "#/$defs/scoring"
+    },
+    {
+      "$ref": "#/$defs/telemetry"
+    },
+    {
+      "$ref": "#/$defs/lap"
+    },
+    {
+      "$ref": "#/$defs/event"
+    }
+  ],
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "required": [
+        "v",
+        "type",
+        "agent_id",
+        "role",
+        "session_id",
+        "seq",
+        "et",
+        "payload"
+      ],
+      "properties": {
+        "v": {
+          "const": 1,
+          "description": "Wire format version."
+        },
+        "type": {
+          "enum": [
+            "hello",
+            "scoring",
+            "telemetry",
+            "lap",
+            "event"
+          ]
+        },
+        "agent_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable id of the agent installation."
+        },
+        "role": {
+          "enum": [
+            "driver",
+            "spotter"
+          ]
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Identifies the game session; changes on session restart."
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Per agent and session, strictly increasing. Acknowledged by the backend."
+        },
+        "et": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Game elapsed time in seconds. Time base for dedup between agents; never wall clock."
+        },
+        "payload": {
+          "type": "object"
+        }
+      }
+    },
+    "hello": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "hello"
+            },
+            "payload": {
+              "type": "object",
+              "required": [
+                "agent_version"
+              ],
+              "properties": {
+                "agent_version": {
+                  "type": "string"
+                },
+                "resume_from_seq": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "First seq the agent will (re)send."
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "scoring": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "scoring"
+            },
+            "payload": {
+              "type": "object",
+              "required": [
+                "track",
+                "session_type",
+                "end_et",
+                "vehicles"
+              ],
+              "properties": {
+                "track": {
+                  "type": "string"
+                },
+                "session_type": {
+                  "type": "string"
+                },
+                "end_et": {
+                  "type": "number",
+                  "description": "Session end in game elapsed time (seconds)."
+                },
+                "game_phase": {
+                  "type": "integer"
+                },
+                "yellow_state": {
+                  "type": "integer",
+                  "description": "Raw mYellowFlagState; applies to full-course yellow only (0 none, 1 pending, 2 pits closed, 3 pit lead lap, 4 pits open, 5 last lap, 6 resume). FCY is derived in the backend."
+                },
+                "weather": {
+                  "type": "object",
+                  "properties": {
+                    "ambient_temp": {
+                      "type": "number"
+                    },
+                    "track_temp": {
+                      "type": "number"
+                    },
+                    "rain": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "vehicles": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/scoringVehicle"
+                  }
+                },
+                "sector_flags": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "integer"
+                  },
+                  "description": "Raw mSectorFlag: local yellow per sector."
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "scoringVehicle": {
+      "type": "object",
+      "required": [
+        "car_id",
+        "vehicle_name",
+        "driver",
+        "vehicle_class",
+        "place",
+        "laps"
+      ],
+      "properties": {
+        "car_id": {
+          "type": "integer",
+          "description": "Slot id (mID) within the session; can be reused after someone leaves."
+        },
+        "driver": {
+          "type": "string"
+        },
+        "vehicle_class": {
+          "type": "string"
+        },
+        "is_player": {
+          "type": "boolean"
+        },
+        "place": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "laps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_lap": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "best_lap": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "last_s1": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Sector 1 duration in seconds."
+        },
+        "last_s2": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Sector 2 duration in seconds. The plugin reports S1+S2 cumulative (mLastSector2); the agent subtracts S1."
+        },
+        "in_pits": {
+          "type": "boolean"
+        },
+        "pit_state": {
+          "type": "integer"
+        },
+        "num_pitstops": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "time_behind_next": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "laps_behind_leader": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "vehicle_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Vehicle name. Together with car_id it identifies a car, because the plugin may reuse slot ids in multiplayer."
+        },
+        "control": {
+          "enum": [
+            -1,
+            0,
+            1,
+            2
+          ],
+          "description": "mControl: -1 nobody, 0 local player, 1 local AI, 2 remote."
+        }
+      },
+      "additionalProperties": false
+    },
+    "telemetry": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "telemetry"
+            },
+            "payload": {
+              "type": "object",
+              "required": [
+                "car_id",
+                "vehicle_name",
+                "lap",
+                "fuel",
+                "fuel_capacity",
+                "wear"
+              ],
+              "properties": {
+                "car_id": {
+                  "type": "integer"
+                },
+                "lap": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "lap_dist": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "fuel": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Litres."
+                },
+                "fuel_capacity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "wear": {
+                  "type": "array",
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "Tyre wear fl, fr, rl, rr as delivered by the plugin (mWear): 0.0-1.0, fraction of maximum. Direction (1.0 new or worn) not stated in the header; verify in game."
+                },
+                "damage": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "vehicle_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Vehicle name. Together with car_id it identifies a car, because the plugin may reuse slot ids in multiplayer."
+                },
+                "tyre_carcass_temp": {
+                  "type": "array",
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "Carcass temperature fl, fr, rl, rr in degrees Celsius (the plugin delivers Kelvin)."
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "lap": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "lap"
+            },
+            "payload": {
+              "type": "object",
+              "required": [
+                "car_id",
+                "vehicle_name",
+                "lap",
+                "lap_time",
+                "in_lap",
+                "out_lap"
+              ],
+              "properties": {
+                "car_id": {
+                  "type": "integer"
+                },
+                "lap": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "driver": {
+                  "type": "string"
+                },
+                "lap_time": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "s1": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "s2": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "Sector 2 duration in seconds (not cumulative)."
+                },
+                "s3": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "Sector 3 duration in seconds: lap time minus S1 minus S2."
+                },
+                "fuel_start": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "Empty for opponents."
+                },
+                "fuel_end": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "tyre_age": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "wear": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "fcy": {
+                  "type": "boolean"
+                },
+                "in_lap": {
+                  "type": "boolean"
+                },
+                "out_lap": {
+                  "type": "boolean"
+                },
+                "vehicle_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Vehicle name. Together with car_id it identifies a car, because the plugin may reuse slot ids in multiplayer."
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "event": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "event"
+            },
+            "payload": {
+              "type": "object",
+              "required": [
+                "kind",
+                "vehicle_name",
+                "car_id"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "pit_entry",
+                    "pit_exit",
+                    "driver_swap",
+                    "fcy_start",
+                    "fcy_end"
+                  ]
+                },
+                "car_id": {
+                  "type": "integer"
+                },
+                "driver": {
+                  "type": "string"
+                },
+                "fuel_added": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "tyres_changed": {
+                  "type": "boolean"
+                },
+                "vehicle_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Vehicle name. Together with car_id it identifies a car, because the plugin may reuse slot ids in multiplayer."
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "ack": {
+      "title": "Backend to agent acknowledgement",
+      "type": "object",
+      "required": [
+        "type",
+        "seq"
+      ],
+      "properties": {
+        "type": {
+          "const": "ack"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Highest seq stored by the backend; the agent may drop everything up to it from its send queue."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
