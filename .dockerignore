@@ -1,0 +1,6 @@
+.git
+agent
+docs
+web/node_modules
+backend/internal/webui/dist/*
+!backend/internal/webui/dist/.gitkeep

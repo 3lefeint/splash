@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: splash
+resources:
+  - ../../base
+images:
+  - name: ghcr.io/3lefeint/splash
+    newTag: latest
+patches:
+  - target:
+      kind: Ingress
+      name: splash
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: splash.example.com
