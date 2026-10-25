@@ -40,12 +40,13 @@ type PlanInput struct {
 
 // PlanEntry is one stint of the recomputed plan.
 type PlanEntry struct {
-	No         int // 1-based
-	Driver     string
-	Start, End float64
-	Done       bool
-	Current    bool
-	DriverSwap bool // driver differs from the previous stint
+	No         int     `json:"no"` // 1-based
+	Driver     string  `json:"driver"`
+	Start      float64 `json:"start"`
+	End        float64 `json:"end"`
+	Done       bool    `json:"done"`
+	Current    bool    `json:"current"`
+	DriverSwap bool    `json:"driver_swap"` // driver differs from the previous stint
 }
 
 // PlanResult is the recomputed plan.

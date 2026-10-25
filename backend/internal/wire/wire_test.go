@@ -22,7 +22,7 @@ func TestDecodeSampleRecording(t *testing.T) {
 		}
 		types = append(types, m.Type)
 	}
-	if strings.Join(types, ",") != "hello,telemetry,lap" {
+	if strings.Join(types, ",") != "hello,telemetry,scoring,lap" {
 		t.Fatalf("types=%v", types)
 	}
 }
