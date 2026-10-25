@@ -81,6 +81,23 @@ func (c *Consumption) FuelPerLap(driver string) (fpl float64, ok bool) {
 	return s.fuelPerLap, true
 }
 
+// Mean returns the average consumption over all drivers with data. It is the
+// fallback for a driver who has not completed a valid lap yet.
+func (c *Consumption) Mean() (fpl float64, ok bool) {
+	var sum float64
+	var n int
+	for _, s := range c.drivers {
+		if s.laps > 0 {
+			sum += s.fuelPerLap
+			n++
+		}
+	}
+	if n == 0 {
+		return 0, false
+	}
+	return sum / float64(n), true
+}
+
 func median(v []float64) float64 {
 	s := append([]float64(nil), v...)
 	sort.Float64s(s)

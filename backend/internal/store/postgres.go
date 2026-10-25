@@ -116,28 +116,11 @@ ON CONFLICT (agent_id, session_id) DO UPDATE SET last_seq = GREATEST(agent_progr
 }
 
 func (p *Postgres) Laps(ctx context.Context, sessionID string) ([]LapRecord, error) {
-	rows, err := p.pool.Query(ctx, `
-SELECT car_id, vehicle_name, lap, driver, lap_time, s1, s2, s3, fuel_start, fuel_end, tyre_age,
-       wear_fl, wear_fr, wear_rl, wear_rr, fcy, in_lap, out_lap
-FROM laps WHERE session_id = $1 ORDER BY car_id, lap`, sessionID)
+	rows, err := p.pool.Query(ctx, lapSelect+` WHERE session_id = $1 ORDER BY car_id, lap`, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []LapRecord
-	for rows.Next() {
-		var l wire.Lap
-		var w [4]*float64
-		if err := rows.Scan(&l.CarID, &l.VehicleName, &l.Lap, &l.Driver, &l.LapTime, &l.S1, &l.S2, &l.S3,
-			&l.FuelStart, &l.FuelEnd, &l.TyreAge, &w[0], &w[1], &w[2], &w[3], &l.FCY, &l.InLap, &l.OutLap); err != nil {
-			return nil, err
-		}
-		if w[0] != nil && w[1] != nil && w[2] != nil && w[3] != nil {
-			l.Wear = []float64{*w[0], *w[1], *w[2], *w[3]}
-		}
-		out = append(out, LapRecord{sessionID, l})
-	}
-	return out, rows.Err()
+	return scanLaps(rows, sessionID)
 }
 
 func (p *Postgres) Stops(ctx context.Context, sessionID string) ([]StopRecord, error) {
@@ -170,4 +153,150 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("ping: %w", err)
 	}
 	return pool, nil
+}
+
+func (p *Postgres) LapsOfCar(ctx context.Context, sessionID string, carID int, vehicleName string) ([]LapRecord, error) {
+	rows, err := p.pool.Query(ctx, lapSelect+` WHERE session_id = $1 AND car_id = $2 AND vehicle_name = $3 ORDER BY lap`,
+		sessionID, carID, vehicleName)
+	if err != nil {
+		return nil, err
+	}
+	return scanLaps(rows, sessionID)
+}
+
+func (p *Postgres) GetParams(ctx context.Context, track, car string) (Params, bool, error) {
+	rows, err := p.pool.Query(ctx, paramsSelect+` WHERE track = $1 AND car = $2`, track, car)
+	if err != nil {
+		return Params{}, false, err
+	}
+	list, err := scanParams(rows)
+	if err != nil || len(list) == 0 {
+		return Params{}, false, err
+	}
+	return list[0], true, nil
+}
+
+func (p *Postgres) ListParams(ctx context.Context) ([]Params, error) {
+	rows, err := p.pool.Query(ctx, paramsSelect+` ORDER BY track, car`)
+	if err != nil {
+		return nil, err
+	}
+	return scanParams(rows)
+}
+
+func (p *Postgres) SetParams(ctx context.Context, v Params) error {
+	_, err := p.pool.Exec(ctx, `
+INSERT INTO params (track, car, pit_through_green, pit_through_fcy, refuel_rate, tyre_change, driver_swap,
+                    parallel_service, fuel_effect, deg_per_lap, save_cost, reserve)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+ON CONFLICT (track, car) DO UPDATE SET
+    pit_through_green = EXCLUDED.pit_through_green, pit_through_fcy = EXCLUDED.pit_through_fcy,
+    refuel_rate = EXCLUDED.refuel_rate, tyre_change = EXCLUDED.tyre_change, driver_swap = EXCLUDED.driver_swap,
+    parallel_service = EXCLUDED.parallel_service, fuel_effect = EXCLUDED.fuel_effect,
+    deg_per_lap = EXCLUDED.deg_per_lap, save_cost = EXCLUDED.save_cost, reserve = EXCLUDED.reserve`,
+		v.Track, v.Car, v.PitThroughGreen, v.PitThroughFCY, v.RefuelRate, v.TyreChange, v.DriverSwap,
+		v.ParallelService, v.FuelEffect, v.DegPerLap, v.SaveCost, v.Reserve)
+	return err
+}
+
+func (p *Postgres) GetStintPlan(ctx context.Context) ([]PlanRow, error) {
+	rows, err := p.pool.Query(ctx, `SELECT driver, duration FROM stint_plan ORDER BY position`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PlanRow
+	for rows.Next() {
+		var r PlanRow
+		if err := rows.Scan(&r.Driver, &r.Duration); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) SetStintPlan(ctx context.Context, plan []PlanRow) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM stint_plan`); err != nil {
+		return err
+	}
+	for i, r := range plan {
+		if _, err := tx.Exec(ctx, `INSERT INTO stint_plan (position, driver, duration) VALUES ($1,$2,$3)`,
+			i+1, r.Driver, r.Duration); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *Postgres) GetOverrides(ctx context.Context) (map[string]Override, error) {
+	rows, err := p.pool.Query(ctx, `SELECT key, value, set_at FROM overrides`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]Override{}
+	for rows.Next() {
+		var o Override
+		if err := rows.Scan(&o.Key, &o.Value, &o.SetAt); err != nil {
+			return nil, err
+		}
+		out[o.Key] = o
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) SetOverride(ctx context.Context, key string, value float64) error {
+	_, err := p.pool.Exec(ctx, `
+INSERT INTO overrides (key, value) VALUES ($1,$2)
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, set_at = now()`, key, value)
+	return err
+}
+
+func (p *Postgres) DeleteOverride(ctx context.Context, key string) error {
+	_, err := p.pool.Exec(ctx, `DELETE FROM overrides WHERE key = $1`, key)
+	return err
+}
+
+const paramsSelect = `SELECT track, car, pit_through_green, pit_through_fcy, refuel_rate, tyre_change, driver_swap,
+       parallel_service, fuel_effect, deg_per_lap, save_cost, reserve FROM params`
+
+func scanParams(rows pgx.Rows) ([]Params, error) {
+	defer rows.Close()
+	var out []Params
+	for rows.Next() {
+		var v Params
+		if err := rows.Scan(&v.Track, &v.Car, &v.PitThroughGreen, &v.PitThroughFCY, &v.RefuelRate, &v.TyreChange,
+			&v.DriverSwap, &v.ParallelService, &v.FuelEffect, &v.DegPerLap, &v.SaveCost, &v.Reserve); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+const lapSelect = `SELECT car_id, vehicle_name, lap, driver, lap_time, s1, s2, s3, fuel_start, fuel_end, tyre_age,
+       wear_fl, wear_fr, wear_rl, wear_rr, fcy, in_lap, out_lap FROM laps`
+
+func scanLaps(rows pgx.Rows, sessionID string) ([]LapRecord, error) {
+	defer rows.Close()
+	var out []LapRecord
+	for rows.Next() {
+		var l wire.Lap
+		var w [4]*float64
+		if err := rows.Scan(&l.CarID, &l.VehicleName, &l.Lap, &l.Driver, &l.LapTime, &l.S1, &l.S2, &l.S3,
+			&l.FuelStart, &l.FuelEnd, &l.TyreAge, &w[0], &w[1], &w[2], &w[3], &l.FCY, &l.InLap, &l.OutLap); err != nil {
+			return nil, err
+		}
+		if w[0] != nil && w[1] != nil && w[2] != nil && w[3] != nil {
+			l.Wear = []float64{*w[0], *w[1], *w[2], *w[3]}
+		}
+		out = append(out, LapRecord{sessionID, l})
+	}
+	return out, rows.Err()
 }

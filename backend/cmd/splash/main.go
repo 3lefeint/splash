@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/3lefeint/splash/backend/internal/api"
+	"github.com/3lefeint/splash/backend/internal/engine"
 	"github.com/3lefeint/splash/backend/internal/ingest"
 	"github.com/3lefeint/splash/backend/internal/live"
 	"github.com/3lefeint/splash/backend/internal/store"
@@ -49,8 +51,13 @@ func run(log *slog.Logger) error {
 		log.Warn("SPLASH_AGENT_TOKEN not set: agent connections are not authenticated")
 	}
 
+	lv := &live.State{}
+	a := api.New(st, engine.New(st, lv))
+	go a.Hub.Run(ctx)
+
 	mux := http.NewServeMux()
-	mux.Handle(ingest.Path, ingest.New(st, &live.State{}, token, log))
+	mux.Handle(ingest.Path, ingest.New(st, lv, token, log))
+	a.Register(mux)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 
 	addr := os.Getenv("SPLASH_LISTEN")

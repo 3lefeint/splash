@@ -71,6 +71,68 @@ func runSuite(t *testing.T, s Store) {
 		}
 	})
 
+	t.Run("laps of one car", func(t *testing.T) {
+		sess := "car"
+		for _, l := range []int{3, 1, 2} {
+			s.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: l})
+		}
+		s.SaveLap(ctx, sess, wire.Lap{CarID: 1, VehicleName: "other", Lap: 1})
+		laps, err := s.LapsOfCar(ctx, sess, 0, "v")
+		if err != nil || len(laps) != 3 || laps[0].Lap.Lap != 1 || laps[2].Lap.Lap != 3 {
+			t.Fatalf("laps=%v err=%v", laps, err)
+		}
+	})
+
+	t.Run("params per track and car", func(t *testing.T) {
+		if _, ok, _ := s.GetParams(ctx, "monza", "gt3"); ok {
+			t.Fatal("unexpected params")
+		}
+		p := Params{Track: "monza", Car: "gt3", PitThroughGreen: 22.5, RefuelRate: 2.8, ParallelService: true, Reserve: 2}
+		s.SetParams(ctx, p)
+		s.SetParams(ctx, Params{Track: "monza", Car: "hyper"})
+		got, ok, err := s.GetParams(ctx, "monza", "gt3")
+		if err != nil || !ok || got != p {
+			t.Fatalf("got=%+v ok=%v err=%v", got, ok, err)
+		}
+		p.PitThroughGreen = 25
+		s.SetParams(ctx, p)
+		if got, _, _ := s.GetParams(ctx, "monza", "gt3"); got.PitThroughGreen != 25 {
+			t.Fatalf("update lost: %+v", got)
+		}
+		if list, _ := s.ListParams(ctx); len(list) != 2 {
+			t.Fatalf("list=%v", list)
+		}
+	})
+
+	t.Run("stint plan is replaced as a whole", func(t *testing.T) {
+		s.SetStintPlan(ctx, []PlanRow{{"a", 3600}, {"b", 3600}, {"c", 1800}})
+		s.SetStintPlan(ctx, []PlanRow{{"b", 100}, {"a", 200}})
+		got, err := s.GetStintPlan(ctx)
+		if err != nil || len(got) != 2 || got[0] != (PlanRow{"b", 100}) || got[1] != (PlanRow{"a", 200}) {
+			t.Fatalf("got=%v err=%v", got, err)
+		}
+		s.SetStintPlan(ctx, nil)
+		if got, _ := s.GetStintPlan(ctx); len(got) != 0 {
+			t.Fatalf("got=%v", got)
+		}
+	})
+
+	t.Run("overrides", func(t *testing.T) {
+		s.SetOverride(ctx, OverrideFuel, 40)
+		s.SetOverride(ctx, OverrideFuel, 41)
+		s.SetOverride(ctx, OverrideFuelPerLap, 3.2)
+		got, err := s.GetOverrides(ctx)
+		if err != nil || len(got) != 2 || got[OverrideFuel].Value != 41 {
+			t.Fatalf("got=%v err=%v", got, err)
+		}
+		s.DeleteOverride(ctx, OverrideFuel)
+		s.DeleteOverride(ctx, "missing") // not an error
+		if got, _ := s.GetOverrides(ctx); len(got) != 1 {
+			t.Fatalf("got=%v", got)
+		}
+		s.DeleteOverride(ctx, OverrideFuelPerLap)
+	})
+
 	t.Run("progress never moves backwards", func(t *testing.T) {
 		if _, ok, _ := s.Progress(ctx, "agent", "p"); ok {
 			t.Fatal("unexpected progress")

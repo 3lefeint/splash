@@ -26,7 +26,7 @@ func TestReplaySampleRecording(t *testing.T) {
 		if err != nil {
 			t.Fatalf("speed %v: %v", speed, err)
 		}
-		if stats.Sent != 3 || stats.Acked != 3 {
+		if stats.Sent != 4 || stats.Acked != 4 {
 			t.Fatalf("stats=%+v", stats)
 		}
 	}

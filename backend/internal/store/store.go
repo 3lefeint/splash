@@ -39,7 +39,21 @@ type Store interface {
 	// SetProgress records the highest durable seq. It never moves backwards.
 	SetProgress(ctx context.Context, agentID, sessionID string, seq int64) error
 	Laps(ctx context.Context, sessionID string) ([]LapRecord, error)
+	// LapsOfCar returns the laps of one car ordered by lap number.
+	LapsOfCar(ctx context.Context, sessionID string, carID int, vehicleName string) ([]LapRecord, error)
 	Stops(ctx context.Context, sessionID string) ([]StopRecord, error)
+
+	// GetParams returns the parameter set of a track and car; ok is false when none exists.
+	GetParams(ctx context.Context, track, car string) (p Params, ok bool, err error)
+	ListParams(ctx context.Context) ([]Params, error)
+	SetParams(ctx context.Context, p Params) error
+	// GetStintPlan returns the global stint plan in order.
+	GetStintPlan(ctx context.Context) ([]PlanRow, error)
+	// SetStintPlan replaces the whole stint plan.
+	SetStintPlan(ctx context.Context, rows []PlanRow) error
+	GetOverrides(ctx context.Context) (map[string]Override, error)
+	SetOverride(ctx context.Context, key string, value float64) error
+	DeleteOverride(ctx context.Context, key string) error
 }
 
 // mergeLap applies the null-keeps-old rule shared by all implementations.

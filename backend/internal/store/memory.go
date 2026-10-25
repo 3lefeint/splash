@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/3lefeint/splash/backend/internal/wire"
 )
@@ -14,6 +15,10 @@ type Memory struct {
 	laps     map[lapKey]wire.Lap
 	stops    []StopRecord
 	progress map[string]int64
+
+	params    map[string]Params
+	plan      []PlanRow
+	overrides map[string]Override
 }
 
 type lapKey struct {
@@ -25,7 +30,12 @@ type lapKey struct {
 
 // NewMemory returns an empty in-memory store.
 func NewMemory() *Memory {
-	return &Memory{laps: map[lapKey]wire.Lap{}, progress: map[string]int64{}}
+	return &Memory{
+		laps:      map[lapKey]wire.Lap{},
+		progress:  map[string]int64{},
+		params:    map[string]Params{},
+		overrides: map[string]Override{},
+	}
 }
 
 func (m *Memory) SaveLap(_ context.Context, sessionID string, l wire.Lap) error {
@@ -132,4 +142,84 @@ func (m *Memory) Stops(_ context.Context, sessionID string) ([]StopRecord, error
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].EntryET < out[j].EntryET })
 	return out, nil
+}
+
+func (m *Memory) LapsOfCar(_ context.Context, sessionID string, carID int, vehicleName string) ([]LapRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []LapRecord
+	for k, l := range m.laps {
+		if k.session == sessionID && k.car == carID && k.vehicle == vehicleName {
+			out = append(out, LapRecord{sessionID, l})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Lap.Lap < out[j].Lap.Lap })
+	return out, nil
+}
+
+func (m *Memory) GetParams(_ context.Context, track, car string) (Params, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.params[track+"|"+car]
+	return p, ok, nil
+}
+
+func (m *Memory) ListParams(_ context.Context) ([]Params, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Params, 0, len(m.params))
+	for _, p := range m.params {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Track != out[j].Track {
+			return out[i].Track < out[j].Track
+		}
+		return out[i].Car < out[j].Car
+	})
+	return out, nil
+}
+
+func (m *Memory) SetParams(_ context.Context, p Params) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.params[p.Track+"|"+p.Car] = p
+	return nil
+}
+
+func (m *Memory) GetStintPlan(_ context.Context) ([]PlanRow, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]PlanRow(nil), m.plan...), nil
+}
+
+func (m *Memory) SetStintPlan(_ context.Context, rows []PlanRow) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.plan = append([]PlanRow(nil), rows...)
+	return nil
+}
+
+func (m *Memory) GetOverrides(_ context.Context) (map[string]Override, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]Override, len(m.overrides))
+	for k, v := range m.overrides {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (m *Memory) SetOverride(_ context.Context, key string, value float64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.overrides[key] = Override{Key: key, Value: value, SetAt: time.Now().UTC()}
+	return nil
+}
+
+func (m *Memory) DeleteOverride(_ context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.overrides, key)
+	return nil
 }
