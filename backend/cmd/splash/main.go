@@ -15,6 +15,7 @@ import (
 	"github.com/3lefeint/splash/backend/internal/engine"
 	"github.com/3lefeint/splash/backend/internal/ingest"
 	"github.com/3lefeint/splash/backend/internal/live"
+	"github.com/3lefeint/splash/backend/internal/webui"
 	"github.com/3lefeint/splash/backend/internal/store"
 )
 
@@ -58,6 +59,7 @@ func run(log *slog.Logger) error {
 	mux := http.NewServeMux()
 	mux.Handle(ingest.Path, ingest.New(st, lv, token, log))
 	a.Register(mux)
+	mux.Handle("/", webui.Handler()) // the frontend; everything more specific above wins
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 
 	addr := os.Getenv("SPLASH_LISTEN")

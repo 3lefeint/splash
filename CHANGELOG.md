@@ -16,3 +16,5 @@
 - State engine combining fuel model, stops, stint plan and class opponents
 - Windows agent: shared memory reader, lap and pit event detection, spool with resend, WebSocket link and `probe` command
 - Live samples are no longer sequenced; pit entries of the same car within 30 s count as one stop
+- Web frontend: overview, stint plan, settings and rest view with SSE updates, offline cache and CSV export
+- Backend serves the built frontend

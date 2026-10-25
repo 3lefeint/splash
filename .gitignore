@@ -1,9 +1,14 @@
 __pycache__/
 *.pyc
 *.egg-info/
-build/
-dist/
+agent/build/
+agent/dist/
 .pytest_cache/
 # local agent configuration and spool
 agent/agent.toml
 agent/spool/
+
+# frontend
+web/node_modules/
+backend/internal/webui/dist/*
+!backend/internal/webui/dist/.gitkeep

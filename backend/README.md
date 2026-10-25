@@ -15,6 +15,7 @@ Planned layout:
 - `internal/replay` - playback of recordings
 - `internal/engine` - combines live state, laps, stops, parameters and overrides into the state shown to the team
 - `internal/api` - REST endpoints and the SSE stream
+- `internal/webui` - the built frontend from `web/`, embedded into the binary
 
 Postgres runs on an existing external VM. Configuration is done with environment variables:
 
@@ -24,7 +25,7 @@ Postgres runs on an existing external VM. Configuration is done with environment
 | `SPLASH_AGENT_TOKEN` | shared secret for agent connections; without it they are not authenticated |
 | `SPLASH_LISTEN` | listen address, default `:8080` |
 
-Agents connect to `/v1/agent/ws` with `Authorization: Bearer <token>`; `/healthz` answers `ok`.
+The frontend is served on `/`; build it with `npm run build` in `web/` first. Agents connect to `/v1/agent/ws` with `Authorization: Bearer <token>`; `/healthz` answers `ok`.
 
 Replay a recording against a running backend:
 
