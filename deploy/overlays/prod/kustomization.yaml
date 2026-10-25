@@ -3,6 +3,11 @@ kind: Kustomization
 namespace: splash
 resources:
   - ../../base
+# Separates the selectors from the test overlay, which runs in the same namespace.
+labels:
+  - pairs:
+      env: prod
+    includeSelectors: true
 images:
   - name: ghcr.io/3lefeint/splash
     newTag: latest

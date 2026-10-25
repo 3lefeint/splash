@@ -2,26 +2,31 @@
 
 Kustomize manifests for the backend (including the embedded web build).
 
-- `base` - Deployment (one replica, in-memory live state), Service, Ingress
-- `overlays/dev` - namespace `splash-dev`, image tag `master`
-- `overlays/prod` - namespace `splash`, image tag `latest` (set by release tags)
+- `base` - Deployment (one replica, in-memory live state), Service, Ingress (class `nginx`)
+- `overlays/test` - names suffixed `-test`, image tag `master`, own Secrets
+- `overlays/prod` - unsuffixed names, image tag `latest` (set by release tags)
 
-Render with `kubectl kustomize deploy/overlays/prod`.
+Both overlays run side by side in the namespace `splash`; the `env` label keeps their selectors apart.
 
-Postgres is external. Two Secrets must exist in the target namespace before the first start:
+Render with `kubectl kustomize deploy/overlays/prod` or `.../test`.
 
-| Secret            | Key     | Content                                              |
-| ----------------- | ------- | ---------------------------------------------------- |
-| `splash-database` | `url`   | Postgres connection URL (`SPLASH_DATABASE_URL`)      |
-| `splash-agent`    | `token` | Shared token the agents send (`SPLASH_AGENT_TOKEN`)  |
+Postgres is external. These Secrets must exist in the namespace before the first start:
 
-The ingress host is a placeholder (`splash.example.com`); change it in the overlay patch. The ingress annotations
-assume ingress-nginx; the agent WebSocket and the SSE stream need long read timeouts and no response buffering.
+| Secret                 | Key     | Content                                         |
+| ---------------------- | ------- | ----------------------------------------------- |
+| `splash-database`      | `url`   | Postgres connection URL (prod)                  |
+| `splash-agent`         | `token` | Shared token the prod agents send               |
+| `splash-test-database` | `url`   | Postgres connection URL (test, own database)    |
+| `splash-test-agent`    | `token` | Shared token the test agents send               |
+
+The ingress hosts are placeholders (`splash.example.com`, `splash-test.example.com`); change them in your local
+overlay. The ingress annotations assume ingress-nginx; the agent WebSocket and the SSE stream need long read timeouts
+and no response buffering, also on any proxy in front of it.
 
 ## Local overlay
 
-Keep the real host name and cluster specifics out of the repository: create an overlay outside it that references
-`deploy/overlays/prod` and patches the Ingress.
+Keep the real host names and cluster specifics out of the repository: create an overlay outside it that references
+`deploy/overlays/prod` (or `test`) and patches the Ingress.
 
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -39,24 +44,8 @@ patches:
 Apply it with `kubectl apply -k <overlay dir>`, then check `kubectl -n splash rollout status deploy/splash` and
 `https://<host>/healthz`. The backend creates its tables on the first start.
 
-### TLS
-
-The base Ingress has no TLS section. With cert-manager, add to the same overlay (issuer name is yours):
-
-```yaml
-  - target: {kind: Ingress, name: splash}
-    patch: |-
-      - op: add
-        path: /metadata/annotations/cert-manager.io~1cluster-issuer
-        value: my-cluster-issuer
-      - op: add
-        path: /spec/tls
-        value:
-          - hosts: [splash.example.com]
-            secretName: splash-tls
-```
-
-Agents then connect with `wss://<host>/v1/agent/ws`; without TLS use `ws://`.
+TLS is not handled in the cluster; terminate it in front of the ingress. Agents then connect with
+`wss://<host>/v1/agent/ws`; without TLS use `ws://`.
 
 ### Image pull
 
