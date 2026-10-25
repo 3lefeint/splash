@@ -66,7 +66,7 @@
         "seq": {
           "type": "integer",
           "minimum": 0,
-          "description": "Per agent and session, strictly increasing. Acknowledged by the backend."
+          "description": "Sequence number of durable messages (hello is 0, then lap and event count up from 1), per agent and session, acknowledged by the backend. Live samples (scoring, telemetry) are not sequenced: they carry the last durable seq."
         },
         "et": {
           "type": "number",

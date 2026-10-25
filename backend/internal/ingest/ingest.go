@@ -95,20 +95,28 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // handle processes one message and returns the seq to acknowledge.
+//
+// Only laps, events and hello are sequenced and durable. Live samples (scoring,
+// telemetry) are always processed, whatever their seq, because the newest
+// sample wins anyway; they are acknowledged with the highest durable seq.
 func (s *Server) handle(ctx context.Context, m wire.Message) (int64, error) {
 	key := m.AgentID + "|" + m.SessionID
 	last, known, err := s.lastSeq(ctx, key, m)
 	if err != nil {
 		return 0, err
 	}
+	switch b := m.Body.(type) {
+	case wire.Scoring:
+		s.Live.UpdateScoring(m.SessionID, m.ET, b)
+		return last, nil
+	case wire.Telemetry:
+		s.Live.UpdateTelemetry(m.SessionID, m.ET, b)
+		return last, nil
+	}
 	if known && m.Seq <= last {
 		return last, nil // resend of something already processed
 	}
 	switch b := m.Body.(type) {
-	case wire.Scoring:
-		s.Live.UpdateScoring(m.SessionID, m.ET, b)
-	case wire.Telemetry:
-		s.Live.UpdateTelemetry(m.SessionID, m.ET, b)
 	case wire.Lap:
 		if err := s.Store.SaveLap(ctx, m.SessionID, b); err != nil {
 			return 0, err
@@ -118,14 +126,8 @@ func (s *Server) handle(ctx context.Context, m wire.Message) (int64, error) {
 			return 0, err
 		}
 	}
-	// Only laps, events and hello are durable. Live samples are ephemeral, so
-	// their seq stays in memory; after a restart the agent resends from the
-	// last durable seq, which is harmless.
-	switch m.Body.(type) {
-	case wire.Lap, wire.Event, wire.Hello:
-		if err := s.Store.SetProgress(ctx, m.AgentID, m.SessionID, m.Seq); err != nil {
-			return 0, err
-		}
+	if err := s.Store.SetProgress(ctx, m.AgentID, m.SessionID, m.Seq); err != nil {
+		return 0, err
 	}
 	s.mu.Lock()
 	s.received[key] = m.Seq

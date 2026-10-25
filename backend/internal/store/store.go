@@ -56,6 +56,10 @@ type Store interface {
 	DeleteOverride(ctx context.Context, key string) error
 }
 
+// PitEntryWindow is the time in seconds within which two pit entries of the same
+// car count as one stop. Both agents report every stop, each with its own sample time.
+const PitEntryWindow = 30.0
+
 // mergeLap applies the null-keeps-old rule shared by all implementations.
 func mergeLap(old, n wire.Lap) wire.Lap {
 	out := old

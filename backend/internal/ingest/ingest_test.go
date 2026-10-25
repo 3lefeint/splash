@@ -154,3 +154,29 @@ func TestInvalidMessageClosesConnection(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestLiveSamplesIgnoreSeq(t *testing.T) {
+	srv, st, url := setup(t, "")
+	c := dial(t, url, "")
+	if a := send(t, c, "a", 0, "hello", `{"agent_version":"1"}`); a.Seq != 0 {
+		t.Fatalf("%+v", a)
+	}
+	send(t, c, "a", 1, "lap", fmt.Sprintf(lapPayload, 1))
+	// Live samples carry the last durable seq (or a stale one): they are still processed.
+	tel := `{"car_id":0,"vehicle_name":"v","lap":2,"fuel":%d,"fuel_capacity":90,"wear":[1,1,1,1]}`
+	for i, fuel := range []int{50, 49} {
+		if a := send(t, c, "a", 1, "telemetry", fmt.Sprintf(tel, fuel)); a.Seq != 1 {
+			t.Fatalf("sample %d acked %d, want the last durable seq 1", i, a.Seq)
+		}
+	}
+	if f := srv.Live.Snapshot().Telemetry.Fuel; f != 49 {
+		t.Fatalf("fuel=%v", f)
+	}
+	// The next durable message continues at last durable seq + 1.
+	if a := send(t, c, "a", 2, "lap", fmt.Sprintf(lapPayload, 2)); a.Seq != 2 {
+		t.Fatalf("%+v", a)
+	}
+	if laps, _ := st.Laps(context.Background(), "s1"); len(laps) != 2 {
+		t.Fatalf("laps=%d", len(laps))
+	}
+}

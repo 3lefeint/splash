@@ -18,8 +18,12 @@ Rules:
 
 - `et` is game elapsed time in seconds. Deduplication between the two agents uses `session_id`, `car_id` and `et`/`lap`,
   never wall clock.
-- `seq` is strictly increasing per agent and session. The backend answers with `ack` carrying the highest stored `seq`;
-  after a reconnect the agent resends everything after the last `ack`.
+- Only `lap` and `event` messages are durable. They are numbered with a strictly increasing `seq` per agent and session,
+  starting at 1; `hello` always has `seq` 0. `scoring` and `telemetry` are live samples: they are not sequenced, carry the
+  last durable `seq`, and are never resent.
+- The backend answers every message with `ack` carrying the highest durable `seq` it has stored. After a reconnect the
+  agent sends `hello`, takes the `ack` as the backend's position and resends every durable message after it.
+- Two agents report the same pit stop with slightly different `et`. Pit entries of the same car within 30 s are one stop.
 - A car is identified by `car_id` (plugin slot id, `mID`) plus `vehicle_name`, because slot ids can be reused in
   multiplayer after someone leaves.
 - Units: seconds, litres, degrees Celsius. The plugin delivers tyre temperatures in Kelvin and `mLastSector2` as
