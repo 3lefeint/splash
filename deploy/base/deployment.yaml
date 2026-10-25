@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: splash
+spec:
+  # The live state is kept in memory, so there is exactly one instance.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: splash
+  template:
+    metadata:
+      labels:
+        app: splash
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: splash
+          image: ghcr.io/3lefeint/splash
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: SPLASH_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: splash-database
+                  key: url
+            - name: SPLASH_AGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: splash-agent
+                  key: token
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
