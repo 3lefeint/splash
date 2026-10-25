@@ -111,12 +111,22 @@ def test_yellow_marks_only_the_lap_it_was_seen_in():
     assert out[0].payload["fcy"] is False
 
 
-def test_local_yellow_in_a_sector_also_counts():
+def test_full_course_yellow_by_game_phase_counts():
     tr = Tracker()
     step(tr, [car(3)], 100)
-    step(tr, [car(3)], 110, mSectorFlag=(0, 1, 0))
+    step(tr, [car(3)], 110, phase=6)
     out = step(tr, [car(4, last=98.0)], 200)
     assert out[0].payload["fcy"] is True
+
+
+def test_sector_flags_and_pit_lane_states_do_not_count():
+    tr = Tracker()
+    step(tr, [car(3)], 100)
+    step(tr, [car(3)], 110, mSectorFlag=(1, 11, 11))
+    step(tr, [car(3)], 120, yellow=4)
+    step(tr, [car(3)], 130, yellow=5)
+    out = step(tr, [car(4, last=98.0)], 200)
+    assert out[0].payload["fcy"] is False
 
 
 def test_session_restart_resets_without_emitting():

@@ -19,3 +19,7 @@
 - Web frontend: overview, stint plan, settings and rest view with SSE updates, offline cache and CSV export
 - Backend serves the built frontend
 - Dockerfile, Kustomize base with dev and prod overlays, GitHub Actions CI with image push and Windows agent build
+
+### Fixed
+
+- Agent marks laps as full course yellow only for game phase 6 or yellow flag states 1 to 3, not for sector flags

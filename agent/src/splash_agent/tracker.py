@@ -61,7 +61,9 @@ class Tracker:
     def on_scoring(self, info, vehicles) -> list[Durable]:
         """Process one scoring update and return the laps and events it completed."""
         et = info.mCurrentET
-        yellow = info.mYellowFlagState > 0 or any(info.mSectorFlag)
+        # Only a full course yellow marks a lap. Local sector flags are ignored: their values are undocumented
+        # (a green session reports 1, 11, 11) and the pace check drops laps slowed by a local yellow anyway.
+        yellow = info.mGamePhase == 6 or info.mYellowFlagState in (1, 2, 3)
         out: list[Durable] = []
         for v in vehicles:
             w = cv.scoring_vehicle(v)
