@@ -52,6 +52,7 @@ func runSuite(t *testing.T, s Store) {
 			s.SaveEvent(ctx, sess, 1030, swap)
 			s.SaveEvent(ctx, sess, 1045, exit)
 		}
+		s.SaveEvent(ctx, sess, 1000.4, entry)                                                          // the other agent saw the same entry 0.4 s later
 		s.SaveEvent(ctx, sess, 1100, wire.Event{Kind: wire.EventFCYStart, CarID: 0, VehicleName: "v"}) // ignored
 		stops, err := s.Stops(ctx, sess)
 		if err != nil || len(stops) != 1 {

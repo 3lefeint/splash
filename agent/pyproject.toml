@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "splash-agent"
+version = "0.1.0"
+description = "Windows agent that streams rFactor 2 shared memory data to the Splash backend"
+requires-python = ">=3.11"
+dependencies = ["websockets>=13"]
+license = { text = "MIT" }
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "jsonschema>=4"]
+
+[project.scripts]
+splash-agent = "splash_agent.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

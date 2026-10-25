@@ -75,8 +75,12 @@ func (p *Postgres) SaveEvent(ctx context.Context, sessionID string, et float64, 
 	switch e.Kind {
 	case wire.EventPitEntry:
 		_, err = p.pool.Exec(ctx, `
-INSERT INTO stops (session_id, car_id, vehicle_name, entry_et) VALUES ($1,$2,$3,$4)
-ON CONFLICT DO NOTHING`, sessionID, e.CarID, e.VehicleName, et)
+INSERT INTO stops (session_id, car_id, vehicle_name, entry_et)
+SELECT $1, $2, $3, $4::double precision
+WHERE NOT EXISTS (SELECT 1 FROM stops
+                  WHERE session_id = $1 AND car_id = $2 AND vehicle_name = $3
+                    AND abs(entry_et - $4::double precision) <= $5)
+ON CONFLICT DO NOTHING`, sessionID, e.CarID, e.VehicleName, et, PitEntryWindow)
 	case wire.EventPitExit:
 		changed := e.TyresChanged != nil && *e.TyresChanged
 		_, err = p.pool.Exec(ctx, `

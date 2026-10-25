@@ -14,3 +14,5 @@
 - REST endpoints for parameters, stint plan and overrides
 - SSE stream with the complete computed state
 - State engine combining fuel model, stops, stint plan and class opponents
+- Windows agent: shared memory reader, lap and pit event detection, spool with resend, WebSocket link and `probe` command
+- Live samples are no longer sequenced; pit entries of the same car within 30 s count as one stop

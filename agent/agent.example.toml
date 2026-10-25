@@ -1,0 +1,17 @@
+[server]
+url = "ws://splash.example:8080/v1/agent/ws"
+token = ""
+
+[agent]
+# Stable id of this installation, for example "driver-pc" or "spotter-pc".
+id = "driver-pc"
+# "driver" or "spotter"; informational, telemetry is sent whenever this PC is in a car.
+role = "driver"
+# Durable messages (laps, events) are kept here until the backend acknowledged them.
+spool_dir = "spool"
+# Optional: write every message to this NDJSON file (about 2-3 GB per 24 hours); usable with splash-replay.
+record_file = ""
+
+[poll]
+telemetry_hz = 5
+scoring_hz = 2

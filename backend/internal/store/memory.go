@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -55,7 +56,7 @@ func (m *Memory) SaveEvent(_ context.Context, sessionID string, et float64, e wi
 	switch e.Kind {
 	case wire.EventPitEntry:
 		for _, s := range m.stops {
-			if s.SessionID == sessionID && s.CarID == e.CarID && s.VehicleName == e.VehicleName && s.EntryET == et {
+			if s.SessionID == sessionID && s.CarID == e.CarID && s.VehicleName == e.VehicleName && math.Abs(s.EntryET-et) <= PitEntryWindow {
 				return nil
 			}
 		}
