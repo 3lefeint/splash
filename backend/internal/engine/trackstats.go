@@ -101,7 +101,11 @@ func (e *Engine) trackStats(session, track string, car Car, tl float64, opp Oppo
 	}
 	if e.Pits != nil {
 		if l := e.Pits.Lane(track); l != nil {
-			ts.Pits = &PitLaneState{Entry: l.Entry, Exit: l.Exit, Boxes: l.Boxes, OurBox: e.Pits.StoppedAt(car.VehicleName, car.CarID)}
+			boxes := l.Boxes
+			if boxes == nil {
+				boxes = []pitlane.Point{} // [] in the JSON, never null
+			}
+			ts.Pits = &PitLaneState{Entry: l.Entry, Exit: l.Exit, Boxes: boxes, OurBox: e.Pits.StoppedAt(car.VehicleName, car.CarID)}
 			any = true
 		}
 	}

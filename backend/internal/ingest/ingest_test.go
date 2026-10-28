@@ -17,11 +17,13 @@ import (
 	"github.com/3lefeint/splash/backend/internal/wire"
 )
 
-func setup(t *testing.T, token string) (*Server, *store.Memory, string) {
+func setup(t *testing.T, token string) (*Server, store.Store, string) {
 	t.Helper()
-	st := store.NewMemory()
-	srv := New(st, &live.State{}, token, nil)
-	ts := httptest.NewServer(srv)
+	db := store.NewMemory()
+	st := db.ForTeam(1)
+	srv := New(st, &live.State{}, nil)
+	gw := &Gateway{Dir: db, Fallback: token, DefaultTeam: 1, Server: func(int64) *Server { return srv }}
+	ts := httptest.NewServer(gw)
 	t.Cleanup(ts.Close)
 	return srv, st, "ws" + strings.TrimPrefix(ts.URL, "http")
 }
@@ -101,9 +103,11 @@ func TestResendIsAckedButNotReprocessed(t *testing.T) {
 }
 
 func TestProgressSurvivesRestart(t *testing.T) {
-	st := store.NewMemory()
+	db := store.NewMemory()
+	st := db.ForTeam(1)
 	st.SetProgress(context.Background(), "a", "s1", 7)
-	ts := httptest.NewServer(New(st, &live.State{}, "", nil)) // fresh server, no in-memory state
+	srv := New(st, &live.State{}, nil) // fresh server, no in-memory state
+	ts := httptest.NewServer(&Gateway{Dir: db, DefaultTeam: 1, Server: func(int64) *Server { return srv }})
 	defer ts.Close()
 	c := dial(t, "ws"+strings.TrimPrefix(ts.URL, "http"), "")
 	if a := send(t, c, "a", 5, "lap", fmt.Sprintf(lapPayload, 5)); a.Seq != 7 {

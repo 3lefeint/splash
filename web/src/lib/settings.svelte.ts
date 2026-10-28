@@ -3,6 +3,7 @@ import { readJson, safeStorage, writeJson } from './storage';
 import { DEFAULT_RANGES, FALLBACK_RANGE, type TyreRange } from './conditions';
 import type { Target } from './overlays';
 import type { Overlay, Wheel } from './wear';
+import { migrateYellow } from './yellow';
 
 interface Saved {
   lang: Lang;
@@ -21,6 +22,11 @@ interface Saved {
   mapPace: boolean;
   mapPits: boolean;
   mapGhost: boolean;
+  yellowAhead: boolean;
+  yellowMarkers: boolean;
+  /** The names before the yellow settings changed their meaning; read once so a saved choice survives. */
+  yellowAlert?: boolean;
+  yellowMap?: boolean;
 }
 
 export type SoundMode = 'off' | 'beep' | 'voice';
@@ -63,6 +69,9 @@ class Settings {
   mapPace = $state(true);
   mapPits = $state(true);
   mapGhost = $state(true);
+  /** Yellow flags: the alert line with distance and corner of the probable cause ahead (and the full course yellow); the markers of the probable causes on the map and in the rivals list. Independent of each other, per browser like the other settings. */
+  yellowAhead = $state(true);
+  yellowMarkers = $state(true);
 
   constructor() {
     const saved = readJson<Partial<Saved>>(safeStorage(), KEY);
@@ -78,6 +87,7 @@ class Settings {
     this.mapPace = saved?.mapPace !== false;
     this.mapPits = saved?.mapPits !== false;
     this.mapGhost = saved?.mapGhost !== false;
+    Object.assign(this, migrateYellow(saved));
     if (saved?.soundMode === 'beep' || saved?.soundMode === 'voice') this.soundMode = saved.soundMode;
     this.tyreRanges = ranges(saved?.tyreRanges) ?? this.tyreRanges;
     const fb = saved?.tyreFallback;
@@ -103,6 +113,8 @@ class Settings {
       mapPace: this.mapPace,
       mapPits: this.mapPits,
       mapGhost: this.mapGhost,
+      yellowAhead: this.yellowAhead,
+      yellowMarkers: this.yellowMarkers,
     });
   }
 

@@ -14,10 +14,16 @@ import (
 	"github.com/3lefeint/splash/backend/internal/store"
 )
 
+// gateway serves one team's ingest Server behind the token check, as the backend does.
+func gateway(db *store.Memory, srv *ingest.Server, token string) *ingest.Gateway {
+	return &ingest.Gateway{Dir: db, Fallback: token, DefaultTeam: 1, Server: func(int64) *ingest.Server { return srv }}
+}
+
 func TestReplaySampleRecording(t *testing.T) {
-	st := store.NewMemory()
+	db := store.NewMemory()
+	st := db.ForTeam(1)
 	lv := &live.State{}
-	ts := httptest.NewServer(ingest.New(st, lv, "tok", nil))
+	ts := httptest.NewServer(gateway(db, ingest.New(st, lv, nil), "tok"))
 	defer ts.Close()
 	url := "ws" + strings.TrimPrefix(ts.URL, "http")
 
@@ -49,7 +55,8 @@ func TestReplayRejectsBadFileBeforeConnecting(t *testing.T) {
 }
 
 func TestReplayWrongTokenFails(t *testing.T) {
-	ts := httptest.NewServer(ingest.New(store.NewMemory(), &live.State{}, "tok", nil))
+	db := store.NewMemory()
+	ts := httptest.NewServer(gateway(db, ingest.New(db.ForTeam(1), &live.State{}, nil), "tok"))
 	defer ts.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

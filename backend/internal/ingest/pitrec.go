@@ -45,7 +45,7 @@ func (r *PitRecorder) Observe(ctx context.Context, sc wire.Scoring) {
 	r.mu.Unlock()
 	if first {
 		if l, ok, err := r.Store.GetPitLane(ctx, sc.Track); err != nil {
-			r.Log.Warn("pit lane lookup", "err", err)
+			r.Log.Error("pit lane lookup", "err", err)
 		} else if ok {
 			r.t.Load(l)
 		}
@@ -61,7 +61,7 @@ func (r *PitRecorder) Observe(ctx context.Context, sc wire.Scoring) {
 	if due {
 		if l := r.t.Lane(sc.Track); l != nil {
 			if err := r.Store.SavePitLane(ctx, *l); err != nil {
-				r.Log.Warn("pit lane save", "err", err)
+				r.Log.Error("pit lane save", "err", err)
 			}
 		}
 	}

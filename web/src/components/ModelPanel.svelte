@@ -2,10 +2,18 @@
   import { putParams } from '../lib/api';
   import { fixed } from '../lib/format';
   import { tileInfo } from '../lib/info.svelte';
+  import { excludedByReason, fitSettingsFor } from '../lib/fit';
   import { t } from '../lib/settings.svelte';
   import { applyFit, fitDiffers } from '../lib/strategy';
   import { live } from '../lib/store';
+  import type { Key } from '../lib/i18n';
 
+  const SETTING_LABEL = {
+    fit_min_laps: 'set.fitMinLaps',
+    fit_slow_percent: 'set.fitSlowPercent',
+    fit_skip_fcy: 'set.fitSkipFcy',
+    fit_skip_wet: 'set.fitSkipWet',
+  } as const;
   /** Below this share of explained variation the fit is shown with a warning. */
   const WEAK = 0.5;
   const fit = $derived(live.state?.fit);
@@ -13,6 +21,9 @@
   const canApply = $derived(!!fit && !fit.reason && !!params && !!params.track && fitDiffers(params, fit));
   let busy = $state(false);
   let error = $state('');
+
+  const settingNames = $derived(fitSettingsFor(fit).map((k) => t(SETTING_LABEL[k])).join(', '));
+  const groups = $derived(excludedByReason(fit));
 
   tileInfo(() => (fit ? t('model.help') : null));
 
@@ -33,7 +44,18 @@
 {#if !fit}
   <p class="muted">{t('model.none')}</p>
 {:else if fit.reason}
-  <p class="muted">{t(fit.reason === 'few_laps' ? 'model.fewLaps' : 'model.collinear', { n: fit.laps })}</p>
+  <p class="muted">{t(fit.reason === 'few_laps' ? 'model.fewLaps' : 'model.collinear', { n: fit.laps, min: fit.min_laps ?? 8 })}</p>
+  {#if fit.reason === 'few_laps' && groups.length > 0}
+    <details class="excluded">
+      <summary>{t('model.excluded', { n: fit.excluded?.length ?? 0 })}</summary>
+      <ul class="why">
+        {#each groups as g (g.reason)}
+          <li><b>{t(`model.ex.${g.reason}` as Key)}</b>: {g.laps.join(', ')}</li>
+        {/each}
+      </ul>
+      <p class="muted small">{t('model.changeBy', { names: settingNames })}</p>
+    </details>
+  {/if}
 {:else}
   <ul>
     <li>
@@ -58,5 +80,9 @@
   li { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: baseline; }
   .small { font-size: 0.8rem; margin-bottom: 6px; }
   .weak { color: var(--warn, #e5a50a); font-size: 0.85rem; margin: 0 0 6px; }
+  .excluded { font-size: 0.85rem; margin-bottom: 6px; }
+  .excluded summary { cursor: pointer; color: var(--muted); }
+  .why { display: grid; gap: 2px; margin: 6px 0; }
+  .why li { display: block; }
   .err { color: var(--bad, #e5534b); }
 </style>

@@ -9,7 +9,7 @@
   const names = ['FL', 'FR', 'RL', 'RR'];
   const bars = $derived((w?.per_lap ?? []).slice(-24));
   const barMax = $derived(Math.max(...bars.map((b) => b.loss), 1e-9));
-  const hot = $derived(w ? hottest(sections(w.recent, 'all')) : -1);
+  const hot = $derived(w ? hottest(sections(w.recent ?? [], 'all')) : -1);
   const trend = $derived(w?.trend_pct ?? null);
   const hosted = tileInfo(() => (w && trend == null ? t('wear.trendWait') : null));
 </script>
@@ -23,7 +23,7 @@
     <div class="muted">{t('wear.laps', { n: w.laps })}</div>
 
     <div class="wheels" title={t('wear.perWheel')}>
-      {#each w.per_wheel as v, i (i)}
+      {#each w.per_wheel ?? [] as v, i (i)}
         <div class="wheel">
           <span class="muted">{names[i]}</span>
           <span class="num">{fixed(v, 2)}</span>

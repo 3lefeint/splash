@@ -41,19 +41,20 @@ func (s *State) resetOnNewSession(id string) {
 	}
 }
 
-// UpdateScoring stores the sample unless a newer one is already present.
-func (s *State) UpdateScoring(sessionID string, et float64, v wire.Scoring) {
+// UpdateScoring stores the sample unless a newer one is already present; it reports whether the sample was stored.
+func (s *State) UpdateScoring(sessionID string, et float64, v wire.Scoring) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.resetOnNewSession(sessionID)
 	if s.scoring != nil && et < s.scoringET {
-		return
+		return false
 	}
 	s.scoring, s.scoringET = &v, et
+	return true
 }
 
-// UpdateTelemetry stores the sample unless a newer one is already present.
-func (s *State) UpdateTelemetry(sessionID string, et float64, v wire.Telemetry) {
+// UpdateTelemetry stores the sample unless a newer one is already present; it reports whether the sample was stored.
+func (s *State) UpdateTelemetry(sessionID string, et float64, v wire.Telemetry) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.resetOnNewSession(sessionID)
@@ -61,9 +62,10 @@ func (s *State) UpdateTelemetry(sessionID string, et float64, v wire.Telemetry) 
 		s.firstET, s.hasFirst = et, true
 	}
 	if s.telemetry != nil && et < s.telemET {
-		return
+		return false
 	}
 	s.telemetry, s.telemET = &v, et
+	return true
 }
 
 // Snapshot returns the current state.

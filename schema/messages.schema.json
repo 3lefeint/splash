@@ -343,6 +343,20 @@
         "track_edge": {
           "type": "number",
           "description": "Distance from the centre line to the track edge at the position of the car in metres."
+        },
+        "sector": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "description": "Sector the car is in (1 to 3; the plugin's mSector 1, 2, 0). Sent only while a sector flag is up; absent from older agents."
+        },
+        "flag": {
+          "type": "integer",
+          "description": "Raw mFlag of the car. Sent only when it is not 0; absent from older agents."
+        },
+        "under_yellow": {
+          "type": "boolean",
+          "description": "Raw mUnderYellow of the car. Sent only when true; absent from older agents."
         }
       },
       "additionalProperties": false

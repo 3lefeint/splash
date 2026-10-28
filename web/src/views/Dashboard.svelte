@@ -133,7 +133,7 @@
       {/if}
       {#if id === 'opponents'}
         <Tile title={t('dash.opponents')}>
-          {#each [['ahead', s.opponents.ahead], ['behind', s.opponents.behind]] as [side, o] (side)}
+          {#each [['ahead', s.opponents?.ahead], ['behind', s.opponents?.behind]] as [side, o] (side)}
             {@const opp = o as Opponent | null}
             {@const sd = side as 'ahead' | 'behind'}
             <div class="opp">

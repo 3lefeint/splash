@@ -7,66 +7,123 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/3lefeint/splash/backend/internal/auth"
 	"github.com/3lefeint/splash/backend/internal/commands"
 	"github.com/3lefeint/splash/backend/internal/engine"
+	"github.com/3lefeint/splash/backend/internal/logx"
+	"github.com/3lefeint/splash/backend/internal/ratelimit"
 	"github.com/3lefeint/splash/backend/internal/store"
-	"github.com/3lefeint/splash/backend/internal/trackmap"
+	"github.com/3lefeint/splash/backend/internal/teams"
 	"github.com/3lefeint/splash/backend/internal/wire"
 )
 
 const (
-	maxBody      = 64 << 10
-	maxPlanRows  = 200
-	heartbeat    = 15 * time.Second
-	defaultTick  = time.Second
-	subscriberCh = 1
+	maxBody          = 64 << 10
+	maxPlanRows      = 200
+	defaultHeartbeat = 15 * time.Second
+	defaultTick      = time.Second
+	subscriberCh     = 1
 )
 
-// API holds the handlers. Writes have no authentication; the VPN is trusted.
+// API holds the handlers. Every request is identified first (see Identify) and then served from the runtime of the
+// team of the identity.
 type API struct {
-	Store  store.Store
-	Engine *engine.Engine
-	Hub    *Hub
-	// Cmds sends pit setups to the driver agent. Nil answers with 503.
-	Cmds *commands.Hub
-	// MapProgress returns the track outline recorded so far. Nil answers with 404.
-	MapProgress func(track string) *trackmap.Progress
+	Teams *teams.Registry
+	// Verifier checks the Cloudflare Access token of browser requests. Nil switches authentication off: every request
+	// then belongs to the team "default" and nobody is an administrator.
+	Verifier *auth.Verifier
+	// Identify says who a browser request comes from and which team it belongs to. It is the only place that decides
+	// this; the default checks the Access token with Verifier and maps the e-mail address to a team.
+	Identify func(*http.Request) (Identity, error)
+	// WriteLimit limits write requests per identity, ConnLimit new SSE streams. Nil means unlimited.
+	WriteLimit, ConnLimit *ratelimit.Limiter
+	// Interval is how often the state is pushed to the SSE clients; zero means every second.
+	Interval time.Duration
+	// Heartbeat is how often an idle SSE stream gets a keep-alive message, so idle timeouts on the way (the tunnel,
+	// Cloudflare) do not cut it; zero means 15 seconds.
+	Heartbeat time.Duration
+	Log       *slog.Logger
+	// Throttle keeps floods of the same INFO line (failed logins, rate limit hits) to one line per interval.
+	Throttle *logx.Throttle
+
+	mu   sync.Mutex
+	ctx  context.Context
+	hubs map[int64]*Hub
+	now  func() time.Time
 }
 
-// New returns an API with a Hub that pushes the state every second.
-func New(st store.Store, eng *engine.Engine) *API {
-	return &API{Store: st, Engine: eng, Hub: &Hub{Engine: eng, Interval: defaultTick}}
+// New returns an API for the teams of reg. Until Start is called no state is pushed to SSE clients.
+func New(reg *teams.Registry) *API {
+	a := &API{Teams: reg, Interval: defaultTick, hubs: map[int64]*Hub{}, now: time.Now, Log: logx.Discard(), Throttle: logx.NewThrottle(time.Minute)}
+	a.Identify = a.identify
+	return a
 }
 
-// Register adds the routes to mux.
+// team returns the runtime of the requesting team, or writes the error response and returns false.
+func (a *API) team(w http.ResponseWriter, r *http.Request) (*teams.Runtime, bool) {
+	id, ok := IdentityOf(r.Context())
+	if !ok { // a handler that was not registered through guard
+		fail(w, http.StatusInternalServerError, "request was not identified")
+		return nil, false
+	}
+	return a.Teams.Get(id.TeamID), true
+}
+
+// Start lets the SSE hubs run until ctx ends. A hub of a team is started when its first client connects.
+func (a *API) Start(ctx context.Context) {
+	a.mu.Lock()
+	a.ctx = ctx
+	a.mu.Unlock()
+}
+
+// hub returns the SSE hub of a team and starts it on first use.
+func (a *API) hub(rt *teams.Runtime) *Hub {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	h, ok := a.hubs[rt.ID]
+	if !ok {
+		h = &Hub{Engine: rt.Engine, Interval: a.Interval, Log: a.Log, Team: rt.ID}
+		a.hubs[rt.ID] = h
+		if a.ctx != nil {
+			go h.Run(a.ctx)
+		}
+	}
+	return h
+}
+
+// Register adds the routes to mux. Every route goes through guard.
 func (a *API) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/state", a.getState)
-	mux.HandleFunc("GET /api/stream", a.stream)
-	mux.HandleFunc("GET /api/params", a.getParams)
-	mux.HandleFunc("PUT /api/params", a.putParams)
-	mux.HandleFunc("GET /api/stint-plan", a.getPlan)
-	mux.HandleFunc("PUT /api/stint-plan", a.putPlan)
-	mux.HandleFunc("GET /api/track-map", a.getTrackMap)
-	mux.HandleFunc("DELETE /api/track-map", a.deleteTrackMap)
-	mux.HandleFunc("GET /api/tracks", a.listTracks)
-	mux.HandleFunc("GET /api/track-corners", a.getCorners)
-	mux.HandleFunc("PUT /api/track-corners", a.putCorners)
-	mux.HandleFunc("GET /api/track-map/progress", a.getMapProgress)
-	mux.HandleFunc("GET /api/pit-setups", a.getPitSetups)
-	mux.HandleFunc("PUT /api/pit-setups", a.putPitSetup)
-	mux.HandleFunc("DELETE /api/pit-setups", a.deletePitSetup)
-	mux.HandleFunc("POST /api/pit-setups/apply", a.applyPitSetup)
-	mux.HandleFunc("POST /api/pit-request", a.pitRequest)
-	mux.HandleFunc("GET /api/sessions", a.getSessions)
-	mux.HandleFunc("GET /api/sessions/{id}/export", a.exportSession)
-	mux.HandleFunc("GET /api/overrides", a.getOverrides)
-	mux.HandleFunc("PUT /api/overrides/{key}", a.putOverride)
-	mux.HandleFunc("DELETE /api/overrides/{key}", a.deleteOverride)
+	h := func(pattern string, fn http.HandlerFunc) { mux.HandleFunc(pattern, a.guard(pattern, fn)) }
+	h("GET /api/me", a.getMe)
+	h("GET /api/state", a.getState)
+	h("GET /api/stream", a.stream)
+	h("GET /api/params", a.getParams)
+	h("PUT /api/params", a.putParams)
+	h("GET /api/stint-plan", a.getPlan)
+	h("PUT /api/stint-plan", a.putPlan)
+	h("GET /api/track-map", a.getTrackMap)
+	h("DELETE /api/track-map", a.deleteTrackMap)
+	h("GET /api/tracks", a.listTracks)
+	h("GET /api/track-corners", a.getCorners)
+	h("PUT /api/track-corners", a.putCorners)
+	h("GET /api/track-map/progress", a.getMapProgress)
+	h("GET /api/pit-setups", a.getPitSetups)
+	h("PUT /api/pit-setups", a.putPitSetup)
+	h("DELETE /api/pit-setups", a.deletePitSetup)
+	h("POST /api/pit-setups/apply", a.applyPitSetup)
+	h("POST /api/pit-request", a.pitRequest)
+	h("GET /api/sessions", a.getSessions)
+	h("GET /api/sessions/{id}/export", a.exportSession)
+	h("GET /api/overrides", a.getOverrides)
+	h("PUT /api/overrides/{key}", a.putOverride)
+	h("DELETE /api/overrides/{key}", a.deleteOverride)
+	a.registerAdmin(h)
 }
 
 type apiError struct {
@@ -82,6 +139,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func fail(w http.ResponseWriter, status int, msg string) { writeJSON(w, status, apiError{msg}) }
 
 func serverError(w http.ResponseWriter, err error) {
+	logx.ReportError(w, err) // the request middleware logs it, with the route and the team
 	fail(w, http.StatusInternalServerError, err.Error())
 }
 
@@ -105,7 +163,11 @@ func finiteNonNegative(vals ...float64) bool {
 }
 
 func (a *API) getState(w http.ResponseWriter, r *http.Request) {
-	st, err := a.Engine.Compute(r.Context())
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
+	st, err := rt.Engine.Compute(r.Context())
 	if err != nil {
 		serverError(w, err)
 		return
@@ -114,9 +176,13 @@ func (a *API) getState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getParams(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	track, car := r.URL.Query().Get("track"), r.URL.Query().Get("car")
 	if track == "" && car == "" {
-		list, err := a.Store.ListParams(r.Context())
+		list, err := rt.Store.ListParams(r.Context())
 		if err != nil {
 			serverError(w, err)
 			return
@@ -127,7 +193,7 @@ func (a *API) getParams(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, list)
 		return
 	}
-	p, ok, err := a.Store.GetParams(r.Context(), track, car)
+	p, ok, err := rt.Store.GetParams(r.Context(), track, car)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -140,6 +206,10 @@ func (a *API) getParams(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) putParams(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	var p store.Params
 	if !decode(w, r, &p) {
 		return
@@ -152,11 +222,17 @@ func (a *API) putParams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !finiteNonNegative(p.PitThroughGreen, p.PitThroughFCY, p.RefuelRate, p.TyreChange, p.DriverSwap,
-		p.FuelEffect, p.DegPerLap, p.SaveCost, p.Reserve) {
+		p.FuelEffect, p.DegPerLap, p.SaveCost, p.Reserve, p.FitSlowPercent) {
 		fail(w, http.StatusBadRequest, "values must be finite and not negative")
 		return
 	}
-	if err := a.Store.SetParams(r.Context(), p); err != nil {
+	if err := p.ValidateFit(); err != nil {
+		fail(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	p.ParallelService = false // no longer used; an older client may still send it
+	p = p.WithDefaults()
+	if err := rt.Store.SetParams(r.Context(), p); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -164,7 +240,11 @@ func (a *API) putParams(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getPlan(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.Store.GetStintPlan(r.Context())
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
+	rows, err := rt.Store.GetStintPlan(r.Context())
 	if err != nil {
 		serverError(w, err)
 		return
@@ -176,6 +256,10 @@ func (a *API) getPlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) putPlan(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	var rows []store.PlanRow
 	if !decode(w, r, &rows) {
 		return
@@ -190,7 +274,7 @@ func (a *API) putPlan(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := a.Store.SetStintPlan(r.Context(), rows); err != nil {
+	if err := rt.Store.SetStintPlan(r.Context(), rows); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -201,7 +285,11 @@ func (a *API) putPlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getOverrides(w http.ResponseWriter, r *http.Request) {
-	ov, err := a.Store.GetOverrides(r.Context())
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
+	ov, err := rt.Store.GetOverrides(r.Context())
 	if err != nil {
 		serverError(w, err)
 		return
@@ -210,6 +298,10 @@ func (a *API) getOverrides(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) putOverride(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	key := r.PathValue("key")
 	if !store.ValidOverrideKey(key) {
 		fail(w, http.StatusNotFound, "unknown override key")
@@ -225,7 +317,7 @@ func (a *API) putOverride(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "value must be finite and not negative")
 		return
 	}
-	if err := a.Store.SetOverride(r.Context(), key, body.Value); err != nil {
+	if err := rt.Store.SetOverride(r.Context(), key, body.Value); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -233,12 +325,16 @@ func (a *API) putOverride(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) deleteOverride(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	key := r.PathValue("key")
 	if !store.ValidOverrideKey(key) {
 		fail(w, http.StatusNotFound, "unknown override key")
 		return
 	}
-	if err := a.Store.DeleteOverride(r.Context(), key); err != nil {
+	if err := rt.Store.DeleteOverride(r.Context(), key); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -247,12 +343,16 @@ func (a *API) deleteOverride(w http.ResponseWriter, r *http.Request) {
 
 // stream sends the complete state as server-sent events.
 func (a *API) stream(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	fl, ok := w.(http.Flusher)
 	if !ok {
 		fail(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
-	ch, cancel := a.Hub.Subscribe()
+	ch, cancel := a.hub(rt).Subscribe()
 	defer cancel()
 
 	h := w.Header()
@@ -262,36 +362,59 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	// A new client gets the current state at once instead of waiting for the next tick.
-	if st, err := a.Engine.Compute(r.Context()); err == nil {
+	if st, err := rt.Engine.Compute(r.Context()); err == nil {
 		if data, err := json.Marshal(st); err == nil {
 			writeEvent(w, data)
 		}
 	}
 	fl.Flush()
+	start := time.Now()
+	a.Log.Debug("stream connected", "team", rt.ID)
+	defer func() { a.Log.Debug("stream closed", "team", rt.ID, "seconds", int(time.Since(start).Seconds())) }()
 
-	tick := time.NewTicker(heartbeat)
+	beat := a.Heartbeat
+	if beat <= 0 {
+		beat = defaultHeartbeat
+	}
+	tick := time.NewTicker(beat)
 	defer tick.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case data := <-ch:
-			writeEvent(w, data)
+			if err := writeEvent(w, data); err != nil {
+				a.Log.Warn("stream client gone with unsent data", "team", rt.ID, "err", err)
+				return
+			}
 		case <-tick.C:
-			fmt.Fprint(w, ": ping\n\n")
+			a.Log.Debug("stream heartbeat", "team", rt.ID)
+			// One message with a comment, which every proxy and client accepts, and a named event with the interval in
+			// milliseconds, which the page can see: a connection that went silent without an error is detected by the
+			// absence of both.
+			if _, err := fmt.Fprintf(w, ": ping\nevent: ping\ndata: %d\n\n", beat.Milliseconds()); err != nil {
+				a.Log.Warn("stream client gone with unsent data", "team", rt.ID, "err", err)
+				return
+			}
 		}
 		fl.Flush()
 	}
 }
 
-func writeEvent(w http.ResponseWriter, data []byte) {
-	fmt.Fprintf(w, "event: state\ndata: %s\n\n", data)
+func writeEvent(w http.ResponseWriter, data []byte) error {
+	_, err := fmt.Fprintf(w, "event: state\ndata: %s\n\n", data)
+	return err
 }
 
 // Hub computes the state once per interval and hands it to all SSE clients.
 type Hub struct {
 	Engine   *engine.Engine
 	Interval time.Duration
+	// Log and Team are for the lines about a state that could not be computed.
+	Log  *slog.Logger
+	Team int64
+
+	warnedAt time.Time // when the last compute failure was logged; a failing database would otherwise log every second
 
 	mu   sync.Mutex
 	subs map[chan []byte]struct{}
@@ -342,6 +465,10 @@ func (h *Hub) Run(ctx context.Context) {
 		st, err := h.Engine.Compute(ctx)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
+				if h.Log != nil && time.Since(h.warnedAt) > time.Minute {
+					h.warnedAt = time.Now()
+					h.Log.Error("state could not be computed", "team", h.Team, "err", err)
+				}
 				continue
 			}
 			return
@@ -375,12 +502,16 @@ func (h *Hub) Run(ctx context.Context) {
 }
 
 func (a *API) getTrackMap(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	track := r.URL.Query().Get("track")
 	if track == "" {
 		fail(w, http.StatusBadRequest, "track is required")
 		return
 	}
-	m, ok, err := a.Store.GetTrackMap(r.Context(), track)
+	m, ok, err := rt.Store.GetTrackMap(r.Context(), track)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -394,12 +525,16 @@ func (a *API) getTrackMap(w http.ResponseWriter, r *http.Request) {
 
 // deleteTrackMap removes the stored outline so the next clean lap records a new one.
 func (a *API) deleteTrackMap(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	track := r.URL.Query().Get("track")
 	if track == "" {
 		fail(w, http.StatusBadRequest, "track is required")
 		return
 	}
-	if err := a.Store.DeleteTrackMap(r.Context(), track); err != nil {
+	if err := rt.Store.DeleteTrackMap(r.Context(), track); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -408,7 +543,11 @@ func (a *API) deleteTrackMap(w http.ResponseWriter, r *http.Request) {
 
 // listTracks names the tracks that have a stored outline, for the track editor.
 func (a *API) listTracks(w http.ResponseWriter, r *http.Request) {
-	list, err := a.Store.ListTracks(r.Context())
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
+	list, err := rt.Store.ListTracks(r.Context())
 	if err != nil {
 		serverError(w, err)
 		return
@@ -417,12 +556,16 @@ func (a *API) listTracks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getCorners(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	track := r.URL.Query().Get("track")
 	if track == "" {
 		fail(w, http.StatusBadRequest, "track is required")
 		return
 	}
-	list, err := a.Store.GetCorners(r.Context(), track)
+	list, err := rt.Store.GetCorners(r.Context(), track)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -432,6 +575,10 @@ func (a *API) getCorners(w http.ResponseWriter, r *http.Request) {
 
 // putCorners replaces the corner names of a track. The list is kept in the order it was sent.
 func (a *API) putCorners(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	track := r.URL.Query().Get("track")
 	if track == "" {
 		fail(w, http.StatusBadRequest, "track is required")
@@ -464,7 +611,7 @@ func (a *API) putCorners(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []store.Corner{}
 	}
-	if err := a.Store.SaveCorners(r.Context(), track, list); err != nil {
+	if err := rt.Store.SaveCorners(r.Context(), track, list); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -492,7 +639,11 @@ func validSteps(steps []wire.Step) string {
 }
 
 func (a *API) getPitSetups(w http.ResponseWriter, r *http.Request) {
-	list, err := a.Store.PitSetups(r.Context(), r.URL.Query().Get("car"))
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
+	list, err := rt.Store.PitSetups(r.Context(), r.URL.Query().Get("car"))
 	if err != nil {
 		serverError(w, err)
 		return
@@ -501,6 +652,10 @@ func (a *API) getPitSetups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) putPitSetup(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	var s store.PitSetup
 	if !decode(w, r, &s) {
 		return
@@ -513,7 +668,7 @@ func (a *API) putPitSetup(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, msg)
 		return
 	}
-	if err := a.Store.SavePitSetup(r.Context(), s); err != nil {
+	if err := rt.Store.SavePitSetup(r.Context(), s); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -521,8 +676,12 @@ func (a *API) putPitSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) deletePitSetup(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	q := r.URL.Query()
-	if err := a.Store.DeletePitSetup(r.Context(), q.Get("car"), q.Get("name")); err != nil {
+	if err := rt.Store.DeletePitSetup(r.Context(), q.Get("car"), q.Get("name")); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -530,6 +689,10 @@ func (a *API) deletePitSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) applyPitSetup(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
 		Name  string      `json:"name"`
 		Steps []wire.Step `json:"steps"`
@@ -541,11 +704,7 @@ func (a *API) applyPitSetup(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, msg)
 		return
 	}
-	if a.Cmds == nil {
-		fail(w, http.StatusServiceUnavailable, "commands are not available")
-		return
-	}
-	id, err := a.Cmds.Send(r.Context(), req.Name, req.Steps)
+	id, err := rt.Cmds.Send(r.Context(), req.Name, req.Steps)
 	switch {
 	case errors.Is(err, commands.ErrNoDriver), errors.Is(err, commands.ErrBusy):
 		fail(w, http.StatusConflict, err.Error())
@@ -557,26 +716,28 @@ func (a *API) applyPitSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getMapProgress(w http.ResponseWriter, r *http.Request) {
-	if a.MapProgress != nil {
-		if p := a.MapProgress(r.URL.Query().Get("track")); p != nil {
-			writeJSON(w, http.StatusOK, p)
-			return
-		}
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
+	if p := rt.Ingest.Maps.Progress(r.URL.Query().Get("track")); p != nil {
+		writeJSON(w, http.StatusOK, p)
+		return
 	}
 	fail(w, http.StatusNotFound, "no outline is being recorded")
 }
 
 // pitRequest toggles the pit request of the driven car through the driver agent.
 func (a *API) pitRequest(w http.ResponseWriter, r *http.Request) {
-	if a.Cmds == nil {
-		fail(w, http.StatusServiceUnavailable, "commands are not available")
+	rt, ok := a.team(w, r)
+	if !ok {
 		return
 	}
 	name := r.URL.Query().Get("name")
 	if name == "" || len(name) > maxNameLen {
 		name = "pit request"
 	}
-	id, err := a.Cmds.PitRequest(r.Context(), name)
+	id, err := rt.Cmds.PitRequest(r.Context(), name)
 	switch {
 	case errors.Is(err, commands.ErrNoDriver), errors.Is(err, commands.ErrBusy):
 		fail(w, http.StatusConflict, err.Error())

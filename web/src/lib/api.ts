@@ -1,4 +1,4 @@
-import type { Corner, MapProgress, TrackInfo, SessionSummary, OverrideKey, Params, PitSetup, PlanRow, Step, TrackMap } from './types';
+import type { AdminAgent, AdminMember, AdminTeam, CreatedAgent, Me, Corner, MapProgress, TrackInfo, SessionSummary, OverrideKey, Params, PitSetup, PlanRow, Step, TrackMap } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -91,3 +91,17 @@ export const exportUrl = (sessionId: string, kind: 'laps' | 'stops' | 'condition
 /** Toggles the pit request of the driven car through the driver agent. */
 export const pitRequest = (name: string) =>
   request<{ id: string }>('POST', `/api/pit-request?name=${encodeURIComponent(name)}`);
+
+export const getMe = () => request<Me>('GET', '/api/me');
+
+export const adminTeams = () => request<AdminTeam[]>('GET', '/api/admin/teams');
+export const adminCreateTeam = (name: string) => request<AdminTeam>('POST', '/api/admin/teams', { name });
+export const adminMembers = () => request<AdminMember[]>('GET', '/api/admin/members');
+export const adminSetMember = (m: { email: string; team_id: number; is_admin: boolean }) =>
+  request<AdminMember>('PUT', '/api/admin/members', m);
+export const adminDeleteMember = (email: string) =>
+  request<void>('DELETE', `/api/admin/members?email=${encodeURIComponent(email)}`);
+export const adminAgents = () => request<AdminAgent[]>('GET', '/api/admin/agents');
+export const adminCreateAgent = (name: string, teamId: number) =>
+  request<CreatedAgent>('POST', '/api/admin/agents', { name, team_id: teamId });
+export const adminRevokeAgent = (id: number) => request<void>('POST', `/api/admin/agents/${id}/revoke`);

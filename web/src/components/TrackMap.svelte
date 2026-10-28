@@ -145,7 +145,7 @@
       <path d={p.d} class="section" stroke={p.color} vector-effect="non-scaling-stroke" />
     {/each}
     {#if pits}
-      {#each pits.boxes as b}
+      {#each pits.boxes ?? [] as b}
         {@const [bx, by] = view.project(b)}
         <circle cx={bx} cy={by} r={unit * 0.0065} class="box" />
       {/each}
@@ -164,8 +164,8 @@
         {#if !compact}<text x={xx + unit * 0.012} y={xy + unit * 0.038} font-size={unit * 0.02} class="pitlabel">{t('map.pitOut')}</text>{/if}
       {/if}
     {/if}
-    {#if rejoin && pits?.exit}
-      {@const [gx, gy] = view.project(pits.exit)}
+    {#if rejoin && rejoin.lap_dist != null}
+      {@const [gx, gy] = view.project(pointAt(map, rejoin.lap_dist))}
       <circle cx={gx} cy={gy} r={unit * 0.02} class="ghost" vector-effect="non-scaling-stroke" />
       <text x={gx + unit * 0.025} y={gy - unit * 0.028} font-size={unit * 0.022} class="ghosttext">{t('map.rejoin', { pos: rejoin.position })}</text>
     {/if}
@@ -196,6 +196,12 @@
         </circle>
         {#if d.passes}
           <circle r={unit * (d.c.ours ? 0.017 : 0.011) + unit * 0.01} class="passes" vector-effect="non-scaling-stroke" />
+        {/if}
+        {#if settings.yellowMarkers && d.c.probable_cause && !d.c.ours}
+          <circle r={unit * 0.03} class="cause" vector-effect="non-scaling-stroke">
+            <title>{t('map.cause')}</title>
+          </circle>
+          <circle r={unit * 0.02} class="causefill" vector-effect="non-scaling-stroke" />
         {/if}
         {#if d.c.off_track}
           <circle r={unit * 0.022} class="off" vector-effect="non-scaling-stroke"><title>{t('map.offTrack')}</title></circle>
@@ -228,6 +234,8 @@
   .ghosttext { fill: var(--accent); font-weight: 600; }
   .passes { fill: none; stroke: #ffb454; stroke-width: 3; stroke-dasharray: 3 3; }
   .off { fill: none; stroke: var(--bad); stroke-width: 3; }
+  .cause { fill: color-mix(in srgb, #f5c542 35%, transparent); stroke: #f5c542; stroke-width: 5; }
+  .causefill { fill: none; stroke: var(--bad); stroke-width: 3; stroke-dasharray: 4 3; }
   .stretch { fill: none; stroke-width: 8; stroke-linecap: butt; stroke-linejoin: round; opacity: 0.9; }
   .leader { stroke-width: 1; opacity: 0.7; }
   .cornername { font-weight: 700; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }

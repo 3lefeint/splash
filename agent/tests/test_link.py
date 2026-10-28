@@ -15,12 +15,14 @@ class Backend:
         self.last = last
         self.received = []
         self.headers = []
+        self.all_headers = []
         self.drop_first = drop_first_connection
         self.connections = 0
 
     async def handler(self, ws):
         self.connections += 1
         self.headers.append(ws.request.headers.get("Authorization"))
+        self.all_headers.append(ws.request.headers)
         async for raw in ws:
             msg = json.loads(raw)
             self.received.append(msg)
@@ -48,11 +50,11 @@ def make_spool(tmp_path, n=0):
     return s
 
 
-def run_link(backend, spool, token="secret", scenario=None):
+def run_link(backend, spool, token="secret", scenario=None, **link_kwargs):
     async def main():
         async with serve(backend.handler, "127.0.0.1", 0) as server:
             port = server.sockets[0].getsockname()[1]
-            link = Link(f"ws://127.0.0.1:{port}", token, spool)
+            link = Link(f"ws://127.0.0.1:{port}", token, spool, **link_kwargs)
             task = asyncio.create_task(link.run())
             try:
                 await scenario(link)
@@ -114,3 +116,159 @@ def test_reconnects_and_resends_after_the_connection_dropped(tmp_path, monkeypat
 
     run_link(backend, spool, scenario=scenario)
     assert [m["seq"] for m in backend.received if m["type"] == "lap"] == [1, 2]
+
+
+def _connect_once(tmp_path, **link_kwargs):
+    backend = Backend()
+
+    async def scenario(link):
+        await until(lambda: link.connected)
+
+    run_link(backend, make_spool(tmp_path), scenario=scenario, **link_kwargs)
+    return backend.all_headers[0]
+
+
+def test_sends_the_access_service_token_only_when_both_values_are_set(tmp_path):
+    h = _connect_once(tmp_path, cf_client_id="id.access", cf_client_secret="cf-secret-value")
+    assert h["CF-Access-Client-Id"] == "id.access"
+    assert h["CF-Access-Client-Secret"] == "cf-secret-value"
+    assert h["Authorization"] == "Bearer secret"  # the Splash token is sent in addition
+
+    for kwargs in ({}, {"cf_client_id": "id.access"}, {"cf_client_secret": "cf-secret-value"}):
+        h = _connect_once(tmp_path, **kwargs)
+        assert "CF-Access-Client-Id" not in h and "CF-Access-Client-Secret" not in h
+        assert h["Authorization"] == "Bearer secret"
+
+
+def test_the_access_secret_is_never_logged(tmp_path, caplog):
+    # The agent logs at INFO (main.py). The websockets library would print every handshake header at DEBUG, the
+    # Splash token included, so the agent must never be run with that level.
+    caplog.set_level("INFO")
+    caplog.set_level("DEBUG", logger="splash_agent")
+    _connect_once(tmp_path, cf_client_id="id.access", cf_client_secret="cf-secret-value")
+    assert "cf-secret-value" not in caplog.text
+
+
+def _run_with_delays(backend, spool, scenario, **kw):
+    """Runs a Link whose pauses are recorded instead of waited for in full."""
+    delays = []
+
+    async def main():
+        async with serve(backend.handler, "127.0.0.1", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            link = Link(f"ws://127.0.0.1:{port}", "secret", spool, **kw)
+            link._random = lambda: 1.0  # the longest pause, to make the numbers exact
+
+            async def sleep(d):
+                delays.append(d)
+                await asyncio.sleep(0.01)
+
+            link._sleep = sleep
+            task = asyncio.create_task(link.run())
+            try:
+                await scenario(link)
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(main())
+    return delays
+
+
+class DroppingBackend(Backend):
+    """Closes every connection right after the hello, as a tunnel restart or an idle timeout would."""
+
+    def __init__(self, drops):
+        super().__init__()
+        self.drops = drops
+
+    async def handler(self, ws):
+        self.connections += 1
+        async for raw in ws:
+            msg = json.loads(raw)
+            self.received.append(msg)
+            await ws.send(json.dumps({"type": "ack", "seq": self.last}))
+            if self.connections <= self.drops:
+                await ws.close()
+                return
+
+
+def test_backoff_starts_over_after_a_connection_that_worked(tmp_path):
+    backend = DroppingBackend(drops=3)
+
+    async def scenario(link):
+        await until(lambda: backend.connections >= 4)
+        await asyncio.sleep(0.05)
+
+    delays = _run_with_delays(backend, make_spool(tmp_path), scenario)
+    # every dropped connection had been acknowledged, so the pause is the first step each time and never doubles
+    assert delays[:3] == [linkmod.MIN_BACKOFF] * 3
+
+
+def test_pause_grows_with_jitter_while_the_backend_stays_away(tmp_path):
+    spool = make_spool(tmp_path)
+    delays = []
+
+    async def main():
+        link = Link("ws://127.0.0.1:1", "secret", spool)  # nothing listens there
+        values = iter([0.0, 0.5, 1.0, 0.0])
+        link._random = lambda: next(values)
+
+        async def sleep(d):
+            delays.append(d)
+            if len(delays) == 4:
+                raise asyncio.CancelledError
+            await asyncio.sleep(0)
+
+        link._sleep = sleep
+        await asyncio.gather(link.run(), return_exceptions=True)
+
+    asyncio.run(main())
+    b = linkmod.MIN_BACKOFF
+    assert delays == [b / 2, 0.75 * 2 * b, 4 * b, 4 * b]  # jitter between half and the full step, steps double
+
+
+def test_a_connection_cut_before_the_http_answer_does_not_end_the_link(tmp_path, caplog):
+    caplog.set_level("INFO")
+    attempts = []
+
+    async def cut(reader, writer):
+        attempts.append(1)
+        writer.close()  # no HTTP answer at all: websockets raises InvalidMessage
+
+    async def main():
+        server = await asyncio.start_server(cut, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        link = Link(f"ws://127.0.0.1:{port}", "secret", make_spool(tmp_path), "id.access", "cf-secret-value")
+        sleeps = []
+
+        async def sleep(d):
+            sleeps.append(d)
+            await asyncio.sleep(0.01)
+
+        link._sleep = sleep
+        task = asyncio.create_task(link.run())
+        await until(lambda: len(attempts) >= 3)
+        assert not task.done(), "the link must keep trying"
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        server.close()
+
+    asyncio.run(main())
+    lines = [r.getMessage() for r in caplog.records if r.name == "splash_agent.link"]
+    assert len(lines) >= 2 and all("reconnecting in" in l and "attempt" in l for l in lines)
+    assert not any("secret" in l.lower().replace("cf-access", "") for l in lines)  # no token in any line
+
+
+def test_one_log_line_per_attempt_without_secrets(tmp_path, caplog):
+    caplog.set_level("INFO")
+    backend = DroppingBackend(drops=2)
+
+    async def scenario(link):
+        await until(lambda: backend.connections >= 3)
+
+    _run_with_delays(backend, make_spool(tmp_path), scenario, cf_client_id="id.access", cf_client_secret="cf-secret-value")
+    lines = [r.getMessage() for r in caplog.records if r.name == "splash_agent.link" and "reconnecting" in r.getMessage()]
+    assert len(lines) >= 2
+    assert all(l.count("reconnecting in") == 1 for l in lines)
+    assert "cf-secret-value" not in caplog.text and "Bearer" not in caplog.text

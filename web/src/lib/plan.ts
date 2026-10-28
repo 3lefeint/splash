@@ -7,7 +7,7 @@ export function until(et: number, nowEt: number): number {
 }
 
 export function currentEntry(state: State): PlanEntry | undefined {
-  return state.stint_plan?.entries.find((e) => e.current);
+  return state.stint_plan?.entries?.find((e) => e.current);
 }
 
 /** The first stint after the current one, which is the one the next swap leads into. */
@@ -19,7 +19,7 @@ export function nextEntry(state: State): PlanEntry | undefined {
 
 /** The next stint of `driver` that has not ended yet, current or future. */
 export function nextStintOf(state: State, driver: string): PlanEntry | undefined {
-  return state.stint_plan?.entries.find((e) => !e.done && !e.reserve && e.driver === driver);
+  return state.stint_plan?.entries?.find((e) => !e.done && !e.reserve && e.driver === driver);
 }
 
 export function drivers(rows: PlanRow[]): string[] {

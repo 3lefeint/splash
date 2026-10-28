@@ -42,17 +42,17 @@ func TestGapsAreSummedAlongThePlaces(t *testing.T) {
 func TestRejoinCountsTheCarsThatWouldPassUs(t *testing.T) {
 	var r rivalLog
 	r.reset("s")
-	p := store.Params{PitThroughGreen: 20, RefuelRate: 4, Reserve: 3} // stop: 20 s + 80 l / 4 = 40 s
+	p := store.Params{PitThroughGreen: 20, RefuelRate: 4, Reserve: 3, TyreChange: 20} // stop: 20 s + 80 l / 4 + 20 s tyres = 60 s
 	s := r.analyse(input(field5(), p))
 	if s == nil || s.Rejoin == nil {
 		t.Fatalf("%+v", s)
 	}
 	rj := s.Rejoin
-	if rj.Loss != 40 || rj.Lost != 2 || rj.Position != 5 || len(rj.PassedBy) != 2 || rj.Incomplete {
-		t.Fatalf("%+v", rj) // P4 at 5 s and P5 at 12 s are both inside 40 s
+	if rj.Loss != 60 || rj.Lost != 2 || rj.Position != 5 || len(rj.PassedBy) != 2 || rj.Incomplete {
+		t.Fatalf("%+v", rj) // P4 at 5 s and P5 at 12 s are both inside 60 s
 	}
-	rj = r.analyse(input(field5(), store.Params{PitThroughGreen: 8, RefuelRate: 100})).Rejoin
-	if rj.Loss != 8.8 || rj.Lost != 1 || rj.PassedBy[0] != "d4" { // only P4 (5 s) is inside 8.8 s
+	rj = r.analyse(input(field5(), store.Params{PitThroughGreen: 8, RefuelRate: 100, TyreChange: 1})).Rejoin
+	if rj.Loss != 9.8 || rj.Lost != 1 || rj.PassedBy[0] != "d4" { // only P4 (5 s) is inside 9.8 s
 		t.Fatalf("%+v", rj)
 	}
 }
@@ -153,10 +153,101 @@ func TestPaceIgnoresSlowOutlierLaps(t *testing.T) {
 	}
 }
 
-func TestNoLossGivesNoRejoin(t *testing.T) {
+func TestRejoinWithoutParametersUsesTheDefaultTyreChange(t *testing.T) {
 	var r rivalLog
 	r.reset("s")
-	if s := r.analyse(input(field5(), store.Params{})); s == nil || s.Rejoin != nil {
+	s := r.analyse(input(field5(), store.Params{}))
+	if s == nil || s.Rejoin == nil || s.Rejoin.Loss != store.DefaultTyreChange || s.Rejoin.Lost != 2 {
 		t.Fatalf("%+v", s)
+	}
+	// an explicit value overrides the default
+	if rj := r.analyse(input(field5(), store.Params{TyreChange: 30})).Rejoin; rj == nil || rj.Loss != 30 {
+		t.Fatalf("%+v", rj)
+	}
+}
+
+func TestTheRejoinAlwaysSumsTheServiceAlsoWithAnOldParallelValue(t *testing.T) {
+	var r rivalLog
+	r.reset("s")
+	p := store.Params{PitThroughGreen: 20, RefuelRate: 4, Reserve: 3, TyreChange: 20, DriverSwap: 5}
+	serial := r.analyse(input(field5(), p)).Rejoin.Loss
+	p.ParallelService = true // an old stored value
+	if got := r.analyse(input(field5(), p)).Rejoin.Loss; got != serial || serial != 20+20+20 {
+		t.Fatalf("serial=%v old parallel=%v, want 60 for both: 20 s lane, 80 l / 4 refuel, 20 s tyres", serial, got)
+	}
+	in := input(field5(), p)
+	in.swap = true
+	if got := r.analyse(in).Rejoin.Loss; got != 65 {
+		t.Fatalf("with the driver swap: %v", got)
+	}
+}
+
+// rejoinAt analyses a stop with a loss of 60 s (20 s lane, 80 l / 4 refuel, 20 s tyres) for car3 at a lap distance on a
+// track of 5000 m and a lap of 100 s, i.e. 50 m/s: 3000 m behind us.
+func rejoinAt(dist *float64, length float64, p store.Params) *Rejoin {
+	var r rivalLog
+	r.reset("s")
+	vs := field5()
+	vs[2].LapDist = dist
+	in := input(vs, p)
+	in.sc.TrackLength = length
+	return r.analyse(in).Rejoin
+}
+
+var stop60 = store.Params{PitThroughGreen: 20, RefuelRate: 4, Reserve: 3, TyreChange: 20}
+
+func TestTheRejoinPointIsBehindUsByTheDistanceCoveredInTheTimeLost(t *testing.T) {
+	rj := rejoinAt(f(4000), 5000, stop60)
+	if rj == nil || rj.LapDist == nil || math.Abs(*rj.LapDist-1000) > 1e-6 {
+		t.Fatalf("4000 m minus 60 s at 50 m/s is 1000 m: %+v", rj)
+	}
+}
+
+func TestTheRejoinPointMovesWithTheCar(t *testing.T) {
+	a := rejoinAt(f(4000), 5000, stop60).LapDist
+	b := rejoinAt(f(4400), 5000, stop60).LapDist
+	if math.Abs(*b-*a-400) > 1e-6 {
+		t.Fatalf("the car moved 400 m: %v -> %v", *a, *b)
+	}
+}
+
+func TestTheRejoinPointMovesWithTheTimeLost(t *testing.T) {
+	short := store.Params{PitThroughGreen: 20, RefuelRate: 4, Reserve: 3, TyreChange: 10} // 50 s
+	a := rejoinAt(f(4000), 5000, stop60).LapDist
+	b := rejoinAt(f(4000), 5000, short).LapDist
+	if math.Abs(*b-*a-500) > 1e-6 { // 10 s less lost = 500 m further ahead
+		t.Fatalf("%v %v", *a, *b)
+	}
+}
+
+func TestTheRejoinPointWrapsAroundTheStartLine(t *testing.T) {
+	rj := rejoinAt(f(1000), 5000, stop60) // 1000 - 3000 = -2000 -> 3000
+	if rj.LapDist == nil || math.Abs(*rj.LapDist-3000) > 1e-6 {
+		t.Fatalf("%+v", rj.LapDist)
+	}
+	// a loss of more than a whole lap still lands on the lap
+	long := store.Params{PitThroughGreen: 200, RefuelRate: 4, Reserve: 3, TyreChange: 20} // 240 s = 12000 m
+	if d := rejoinAt(f(1000), 5000, long).LapDist; d == nil || *d < 0 || *d >= 5000 || math.Abs(*d-4000) > 1e-6 {
+		t.Fatalf("%v", d)
+	}
+}
+
+func TestTheRejoinPointIsNilWithoutTheData(t *testing.T) {
+	for name, rj := range map[string]*Rejoin{
+		"no lap distance": rejoinAt(nil, 5000, stop60),
+		"no track length": rejoinAt(f(4000), 0, stop60),
+	} {
+		if rj == nil || rj.LapDist != nil {
+			t.Errorf("%s: %+v", name, rj)
+		}
+	}
+	var r rivalLog
+	r.reset("s")
+	in := input(field5(), stop60)
+	in.sc.TrackLength = 5000
+	in.sc.Vehicles[2].LapDist = f(4000)
+	in.lapTime = 0
+	if rj := r.analyse(in).Rejoin; rj == nil || rj.LapDist != nil {
+		t.Errorf("no lap time: %+v", rj)
 	}
 }

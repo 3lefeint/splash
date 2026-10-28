@@ -9,10 +9,12 @@ export interface Announcement {
   /** i18n key and its parameters. */
   key: string;
   params?: Record<string, string | number>;
+  /** A second, smaller line below the main one. */
+  small?: { key: string; params?: Record<string, string | number> };
 }
 
 /** Alerts that are worth a sound. Tyre temperatures and rival notes stay on the notes tile. */
-const LOUD = /^(wet-now|wet-prepare|fcy|damage|detached|overheating|penalties|agent-)/;
+const LOUD = /^(wet-now|wet-prepare|fcy|yellow-fcy|yellow-ahead|damage|detached|overheating|penalties|agent-)/;
 
 /** Seconds before the end of the stint at which the driver change is announced. */
 export const SWAP_WARNINGS = [300, 60] as const;
@@ -20,7 +22,7 @@ export const SWAP_WARNINGS = [300, 60] as const;
 /** The announcements that hold in the given state; the player speaks every one that is new. */
 export function announcements(s: State | null | undefined, etNow: number, alerts: Alert[]): Announcement[] {
   if (!s) return [];
-  const out: Announcement[] = alerts.filter((a) => LOUD.test(a.id)).map((a) => ({ id: a.id, level: a.level, key: a.key, params: a.params }));
+  const out: Announcement[] = alerts.filter((a) => LOUD.test(a.id)).map((a) => ({ id: a.id, level: a.level, key: a.key, params: a.params, small: a.small }));
 
   const race = s.race;
   if (race && race.stops_remaining > 0 && race.laps_to_stop <= 2) {

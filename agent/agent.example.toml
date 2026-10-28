@@ -1,6 +1,10 @@
 [server]
 url = "ws://splash.example:8080/v1/agent/ws"
 token = ""
+# Optional: Cloudflare Access service token of this agent, sent as CF-Access-Client-Id / CF-Access-Client-Secret in the
+# handshake. Set both or neither; keep the secret out of version control.
+cf_client_id = ""
+cf_client_secret = ""
 
 [agent]
 # Stable id of this installation, for example "driver-pc" or "spotter-pc".
@@ -18,3 +22,7 @@ raw_file = ""
 [poll]
 telemetry_hz = 5
 scoring_hz = 2
+
+[log]
+# DEBUG, INFO, WARNING or ERROR; the command line option --log-level overrides it. Lines go to the console.
+level = "INFO"

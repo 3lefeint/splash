@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { corners } from '../lib/corners.svelte';
   import { tileInfo } from '../lib/info.svelte';
   import { settings, t } from '../lib/settings.svelte';
   import { alerts } from '../lib/strategy';
   import { live } from '../lib/store';
   import type { Key } from '../lib/i18n';
 
-  const list = $derived(alerts(live.state, settings.tyreRanges, settings.tyreFallback));
+  const list = $derived(alerts(live.state, settings.tyreRanges, settings.tyreFallback, { yellow: settings.yellowAhead, corners: corners.list }));
   tileInfo(() => t('alerts.help'));
 </script>
 
@@ -14,7 +15,7 @@
 {:else}
   <ul>
     {#each list as a (a.id)}
-      <li class={a.level}>{t(a.key as Key, a.params)}</li>
+      <li class={a.level}>{t(a.key as Key, a.params)}{#if a.small} <small class="muted">{t(a.small.key as Key, a.small.params)}</small>{/if}</li>
     {/each}
   </ul>
 {/if}

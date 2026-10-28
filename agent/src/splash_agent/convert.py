@@ -70,8 +70,20 @@ def car_state(t) -> dict:
     return out
 
 
-def scoring_vehicle(v) -> dict | None:
-    """Wire vehicle for scoring, or None for a slot that is not scored yet."""
+# The plugin's mSector counts 1, 2, 0 for the sectors 1, 2, 3.
+_SECTORS = {1: 1, 2: 2, 0: 3}
+# An entry of mSectorFlag with these values means no local yellow (0, and the 11 a clear sector reports); anything else
+# may be a flag and makes the agent say which sector each car is in.
+_CLEAR = (0, 11)
+
+
+def scoring_vehicle(v, with_sector: bool = False) -> dict | None:
+    """Wire vehicle for scoring, or None for a slot that is not scored yet.
+
+    The sector of the player's own car is always added (the backend learns the sector borders from it), the sector of
+    the other cars only with ``with_sector``, which the caller sets while a sector flag is up. The flag and the
+    under-yellow state are added when they are not at rest.
+    """
     name = text(v.mVehicleName)
     if v.mPlace < 1 or not name:
         return None
@@ -102,6 +114,9 @@ def scoring_vehicle(v) -> dict | None:
         "penalties": max(v.mNumPenalties, 0),
         "path_lateral": num(v.mPathLateral),
         "track_edge": num(v.mTrackEdge),
+        "sector": _SECTORS.get(v.mSector) if (with_sector or v.mIsPlayer) else None,
+        "flag": v.mFlag or None,
+        "under_yellow": True if v.mUnderYellow else None,
     }
 
 
@@ -111,8 +126,10 @@ def scoring_payload(info, vehicles, states: dict | None = None) -> dict:
     ``states`` maps a car id to ``car_state`` of its telemetry slot, so every car carries fuel and tyre wear.
     """
     out = []
+    flags = list(info.mSectorFlag)
+    sector_flag_up = any(f not in _CLEAR for f in flags)
     for v in vehicles:
-        w = scoring_vehicle(v)
+        w = scoring_vehicle(v, sector_flag_up)
         if w is not None:
             w.update((states or {}).get(v.mID, {}))
             # None means "unknown" and is dropped, the schema has no null for these.
@@ -124,7 +141,7 @@ def scoring_payload(info, vehicles, states: dict | None = None) -> dict:
         **({"track_length": info.mLapDist} if math.isfinite(info.mLapDist) and info.mLapDist > 0 else {}),
         "game_phase": info.mGamePhase,
         "yellow_state": info.mYellowFlagState,
-        "sector_flags": list(info.mSectorFlag),
+        "sector_flags": flags,
         "weather": {
             "ambient_temp": info.mAmbientTemp,
             "track_temp": info.mTrackTemp,

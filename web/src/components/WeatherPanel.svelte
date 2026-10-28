@@ -6,9 +6,9 @@
   import { live } from '../lib/store';
 
   const w = $derived(live.state?.weather);
-  const track = $derived(w ? spark(w.history.map((p) => p.track), 200, 48) : null);
-  const ambient = $derived(w ? spark(w.history.map((p) => p.ambient), 200, 48) : null);
-  const trend = $derived(w ? change(w.history, 'track') : null);
+  const track = $derived(w ? spark((w.history ?? []).map((p) => p.track), 200, 48) : null);
+  const ambient = $derived(w ? spark((w.history ?? []).map((p) => p.ambient), 200, 48) : null);
+  const trend = $derived(w ? change(w.history ?? [], 'track') : null);
   tileInfo(() => (w && !track ? t('weather.collecting') : null));
   const wet = $derived(w ? isWet(w.rain, w.wetness) : false);
   const pct = (v: number | null | undefined) => (v == null ? '–' : `${fixed(v * 100, 0)} %`);

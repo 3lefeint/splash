@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: splash
+nameSuffix: -stg
+resources:
+  - ../../base
+labels:
+  - pairs:
+      env: stg
+    includeSelectors: true
+images:
+  - name: ghcr.io/3lefeint/splash
+    newTag: master
+patches:
+  - target:
+      kind: Ingress
+      name: splash
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: splash-stg.example.com
+      - op: replace
+        path: /spec/ingressClassName
+        value: public
+  - target:
+      kind: Deployment
+      name: splash
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/valueFrom/secretKeyRef/name
+        value: splash-stg-database
+      - op: replace
+        path: /spec/template/spec/containers/0/env/1/valueFrom/secretKeyRef/name
+        value: splash-stg-agent
+      - op: replace
+        path: /spec/template/spec/initContainers/0/env/0/valueFrom/secretKeyRef/name
+        value: splash-stg-migrate
+      - op: replace
+        path: /spec/template/spec/containers/0/env/2/valueFrom/secretKeyRef/name
+        value: splash-stg-access
+      - op: replace
+        path: /spec/template/spec/containers/0/env/3/valueFrom/secretKeyRef/name
+        value: splash-stg-access
+      - op: replace
+        path: /spec/template/spec/containers/0/env/4/valueFrom/secretKeyRef/name
+        value: splash-stg-access

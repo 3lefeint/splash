@@ -1,5 +1,6 @@
 import { mean, rangeFor, type TyreRange } from './conditions';
-import type { Fit, Params, Rival, State } from './types';
+import { yellowLine } from './yellow';
+import type { Corner, Fit, Params, Rival, State } from './types';
 
 /** "Pascal Paczkowski" as "P. Paczkowski". */
 export function shortName(driver: string): string {
@@ -38,6 +39,8 @@ export interface Alert {
   /** i18n key and its parameters. */
   key: string;
   params?: Record<string, string | number>;
+  /** A second, smaller line below the main one. */
+  small?: { key: string; params?: Record<string, string | number> };
 }
 
 const WHEELS = ['FL', 'FR', 'RL', 'RR'];
@@ -59,16 +62,36 @@ export function alerts(
   s: State | null | undefined,
   ranges: TyreRange[],
   fallback: { low: number; high: number },
+  options: { yellow?: boolean; corners?: Corner[] } = {},
 ): Alert[] {
   if (!s) return [];
   const out: Alert[] = [];
+
+  if (options.yellow) {
+    // The sector flag only says that there is a local yellow; the line says where to be careful. A full course
+    // yellow is a loud alert of its own.
+    if (s.fcy) out.push({ id: 'yellow-fcy', level: 'warn', key: 'alert.yellowFcy' });
+    const line = yellowLine(s, options.corners ?? []);
+    if (line?.kind === 'ahead') {
+      const key = line.corner ? (line.corner.mode === 'in' ? 'alert.yellowAheadIn' : 'alert.yellowAheadBefore') : 'alert.yellowAhead';
+      out.push({
+        id: 'yellow-ahead',
+        level: 'warn',
+        key,
+        params: { dist: line.dist, corner: line.corner?.name ?? '' },
+        small: line.others > 0 ? { key: 'alert.yellowOthers', params: { n: line.others } } : undefined,
+      });
+    } else if (line?.kind === 'unknown') {
+      out.push({ id: 'yellow-unknown', level: 'info', key: 'alert.yellowUnknown' });
+    }
+  }
 
   const w = s.weather;
   if (w) {
     const compound = `${s.tyres?.compound_front ?? ''} ${s.tyres?.compound_rear ?? ''}`.trim();
     const wetness = w.wetness ?? 0;
     const rain = w.rain ?? 0;
-    const h = w.history.filter((p) => p.wetness != null);
+    const h = (w.history ?? []).filter((p) => p.wetness != null);
     const rising = h.length >= 4 && (h[h.length - 1].wetness as number) - (h[h.length - 4].wetness as number) >= RAIN_RISING;
     if (rising) out.push({ id: 'rain-rising', level: 'warn', key: 'alert.rainRising' });
     if (compound) {
@@ -118,7 +141,7 @@ export function alerts(
 
   const st = s.strategy;
   if (st) {
-    for (const r of st.rivals) {
+    for (const r of st.rivals ?? []) {
       const gap = r.gap;
       if (gap == null || Math.abs(gap) > 45 || r.in_pits || r.stop_basis === 'assumed') continue; // a guess from our consumption is not worth a note
       const laps = stopLaps(r);
@@ -134,7 +157,7 @@ export function alerts(
     const rj = st.rejoin;
     if (rj && rj.best_in > 0) {
       const now = rj.window[0]?.lost ?? rj.lost;
-      const best = rj.window.find((p) => p.in_laps === rj.best_in)?.lost ?? now;
+      const best = (rj.window ?? []).find((p) => p.in_laps === rj.best_in)?.lost ?? now;
       if (best < now) out.push({ id: 'better-window', level: 'info', key: 'alert.betterWindow', params: { n: rj.best_in, now, best } });
     }
   }

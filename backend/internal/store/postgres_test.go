@@ -42,5 +42,11 @@ func TestPostgres(t *testing.T) {
 	if err := Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	runSuite(t, NewPostgres(pool))
+	db := NewPostgres(pool)
+	def, ok, err := db.TeamByName(ctx, DefaultTeamName)
+	if err != nil || !ok {
+		t.Fatalf("the migration must create the team %q: %v %v", DefaultTeamName, ok, err)
+	}
+	runSuite(t, db.ForTeam(def.ID))
+	runTeamSuite(t, db)
 }
