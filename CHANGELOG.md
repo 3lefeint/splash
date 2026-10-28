@@ -18,7 +18,7 @@
 - Live samples are no longer sequenced; pit entries of the same car within 30 s count as one stop
 - Web frontend: overview, stint plan, settings and rest view with SSE updates, offline cache and CSV export
 - Backend serves the built frontend
-- Dockerfile, Kustomize base with dev and prod overlays, GitHub Actions CI with image push and Windows agent build
+- Dockerfile, Kustomize base with test and prod overlays (one namespace, Ingress class `nginx`), GitHub Actions CI with image push and Windows agent build
 
 ### Fixed
 

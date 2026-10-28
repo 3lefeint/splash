@@ -8,6 +8,7 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
 spec:
+  ingressClassName: nginx
   rules:
     - host: splash.example.com
       http:
