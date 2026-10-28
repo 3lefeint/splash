@@ -13,6 +13,7 @@ MAX_MAPPED_VEHICLES = 128
 # File names of the mapped buffers.
 TELEMETRY_FILE = "$rFactor2SMMP_Telemetry$"
 SCORING_FILE = "$rFactor2SMMP_Scoring$"
+PIT_INFO_FILE = "$rFactor2SMMP_PitInfo$"
 
 
 
@@ -253,4 +254,42 @@ class ScoringBuffer(_Packed):
         ("mBytesUpdatedHint", C.c_int32),
         ("mScoringInfo", ScoringInfo),
         ("mVehicles", VehicleScoring * MAX_MAPPED_VEHICLES),
+    ]
+
+
+class PitMenu(_Packed):
+    """The row of the pit menu that is selected in the game."""
+
+    _fields_ = [
+        ("mCategoryIndex", C.c_int32),
+        ("mCategoryName", C.c_char * 32),
+        ("mChoiceIndex", C.c_int32),
+        ("mChoiceString", C.c_char * 32),
+        ("mNumChoices", C.c_int32),
+        ("mExpansion", C.c_ubyte * 256),
+    ]
+
+
+class PitInfoBuffer(_Packed):
+    """Version block plus rF2PitInfo as laid out in the mapped file (this buffer has no bytes-updated hint)."""
+
+    _fields_ = [
+        ("mVersionUpdateBegin", C.c_uint32),
+        ("mVersionUpdateEnd", C.c_uint32),
+        ("mPitMenu", PitMenu),
+    ]
+
+
+HW_CONTROL_FILE = "$rFactor2SMMP_HWControl$"
+
+
+class HWControlBuffer(_Packed):
+    """Version block plus rF2HWControl: the plugin hands the named control to the game as if it was pressed."""
+
+    _fields_ = [
+        ("mVersionUpdateBegin", C.c_uint32),
+        ("mVersionUpdateEnd", C.c_uint32),
+        ("mLayoutVersion", C.c_int32),
+        ("mControlName", C.c_char * 96),
+        ("mfRetVal", C.c_double),
     ]

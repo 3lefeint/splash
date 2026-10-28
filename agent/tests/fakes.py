@@ -37,7 +37,8 @@ def scoring(vehicles=(), track=b"Track A", session=10, start_et=36000.0, et=100.
                        mIsPlayer=v.get("player", False), mControl=v.get("control", 1),
                        mInPits=v.get("pits", False), mLastLapTime=v.get("last", -1.0),
                        mLastSector1=v.get("s1", -1.0), mLastSector2=v.get("s12", -1.0),
-                       mBestLapTime=-1.0, mTimeBehindNext=v.get("gap", 0.0), mLapDist=v.get("dist", 0.0)))
+                       mBestLapTime=-1.0, mTimeBehindNext=v.get("gap", 0.0), mLapDist=v.get("dist", 0.0),
+                       mPitState=v.get("pit_state", 0), mNumPenalties=v.get("penalties", 0)))
     return b
 
 
@@ -47,11 +48,18 @@ def telemetry(vehicles=(), version=2):
     b.mNumVehicles = len(vehicles)
     for n, v in enumerate(vehicles):
         t = b.mVehicles[n]
+        t.mEngineWaterTemp, t.mEngineOilTemp = 90.0, 100.0
+        t.mFrontTireCompoundName = b"Medium"
         _set(t, dict(mID=v.get("id", n), mVehicleName=v.get("name", b"car"), mElapsedTime=v.get("et", 100.0),
                      mLapNumber=v.get("lap", 1), mFuel=v.get("fuel", 50.0), mFuelCapacity=v.get("cap", 90.0)))
         for k, w in enumerate(v.get("wear", [0.9, 0.9, 0.9, 0.9])):
             t.mWheels[k].mWear = w
             t.mWheels[k].mTireCarcassTemperature = 273.15 + 80 + k
+            for j in range(3):
+                t.mWheels[k].mTemperature[j] = 273.15 + 90 + j
+                t.mWheels[k].mTireInnerLayerTemperature[j] = 273.15 + 70 + j
+            t.mWheels[k].mPressure = 180.0 + k
+            t.mWheels[k].mBrakeTemp = 400.0 + k
     return b
 
 

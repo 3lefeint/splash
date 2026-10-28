@@ -6,11 +6,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"sync"
+	"time"
 
+	"github.com/3lefeint/splash/backend/internal/commands"
 	"github.com/3lefeint/splash/backend/internal/live"
+	"github.com/3lefeint/splash/backend/internal/segments"
 	"github.com/3lefeint/splash/backend/internal/store"
 	"github.com/3lefeint/splash/backend/internal/strategy"
 	"github.com/3lefeint/splash/backend/internal/wire"
@@ -27,17 +31,44 @@ const (
 
 // State is what the SSE stream and GET /api/state deliver.
 type State struct {
-	Ready     bool                      `json:"ready"`
-	SessionID string                    `json:"session_id,omitempty"`
-	Track     string                    `json:"track,omitempty"`
-	ET        float64                   `json:"et"`
-	TimeLeft  float64                   `json:"time_left"`
-	Car       *Car                      `json:"car,omitempty"`
-	Race      *Race                     `json:"race,omitempty"`
-	StintPlan *Plan                     `json:"stint_plan,omitempty"`
-	Opponents Opponents                 `json:"opponents"`
-	Params    store.Params              `json:"params"`
-	Overrides map[string]store.Override `json:"overrides"`
+	Ready     bool      `json:"ready"`
+	SessionID string    `json:"session_id,omitempty"`
+	Track     string    `json:"track,omitempty"`
+	ET        float64   `json:"et"`
+	TimeLeft  float64   `json:"time_left"`
+	Car       *Car      `json:"car,omitempty"`
+	Race      *Race     `json:"race,omitempty"`
+	StintPlan *Plan     `json:"stint_plan,omitempty"`
+	Opponents Opponents `json:"opponents"`
+	// TrackLength and Field place every car on the track map.
+	TrackLength float64                   `json:"track_length,omitempty"`
+	Field       []FieldCar                `json:"field,omitempty"`
+	Wear        *WearStats                `json:"wear_stats,omitempty"`
+	Tyres       *Tyres                    `json:"tyres,omitempty"`
+	PitMenu     *wire.PitMenu             `json:"pit_menu,omitempty"`
+	Command     *commands.Status          `json:"command,omitempty"`
+	Strategy    *Strategy                 `json:"strategy,omitempty"`
+	Fit         *Fit                      `json:"fit,omitempty"`
+	Fcy         bool                      `json:"fcy,omitempty"`
+	Agents      []commands.AgentStatus    `json:"agents,omitempty"`
+	Sections    *TrackStats               `json:"sections,omitempty"`
+	Pits        *PitStats                 `json:"pits,omitempty"`
+	Weather     *Weather                  `json:"weather,omitempty"`
+	Params      store.Params              `json:"params"`
+	Overrides   map[string]store.Override `json:"overrides"`
+}
+
+// FieldCar is the position of one car on the track.
+type FieldCar struct {
+	CarID       int     `json:"car_id"`
+	VehicleName string  `json:"vehicle_name"`
+	Driver      string  `json:"driver"`
+	Class       string  `json:"class"`
+	Place       int     `json:"place"`
+	LapDist     float64 `json:"lap_dist"`
+	InPits      bool    `json:"in_pits"`
+	Ours        bool    `json:"ours"`
+	OffTrack    bool    `json:"off_track,omitempty"`
 }
 
 type Car struct {
@@ -52,6 +83,15 @@ type Car struct {
 	FuelPerLap   *float64  `json:"fuel_per_lap"`
 	LapTime      *float64  `json:"lap_time"`
 	Wear         []float64 `json:"wear"`
+	// Control is who drives the car: 0 local player, 1 local AI, 2 remote; nil when unknown.
+	Control *int `json:"control,omitempty"`
+	// PitState is the pit state of the car: 0 none, 1 requested, 2 entering, 3 stopped, 4 exiting.
+	PitState int `json:"pit_state"`
+	// Penalties is the number of penalties, DentMax the largest body damage (0 none, 1 some, 2 heavy).
+	Penalties   int  `json:"penalties,omitempty"`
+	DentMax     int  `json:"dent_max,omitempty"`
+	Overheating bool `json:"overheating,omitempty"`
+	Detached    bool `json:"detached,omitempty"`
 	// FuelOverridden and FuelPerLapOverridden tell the UI that a manual value is in use.
 	FuelOverridden       bool `json:"fuel_overridden"`
 	FuelPerLapOverridden bool `json:"fuel_per_lap_overridden"`
@@ -91,16 +131,26 @@ type Opponent struct {
 type Engine struct {
 	Store store.Store
 	Live  *live.State
+	// Commands is the hub whose newest command is part of the state. Nil leaves it out.
+	Commands *commands.Hub
+	// Log receives warnings about failed writes. New sets a logger that discards them.
+	Log *slog.Logger
+	// Field and Own measure the sections of every car and of the driven car, Pits knows the pit lane. Nil leaves them out.
+	Field, Own *segments.Recorder
+	Pits       PitSource
 
 	mu      sync.Mutex
 	session string
 	lastLap int
 	history map[string][]float64
+	weather weatherLog
+	wet     wetCache
+	rivals  rivalLog
 }
 
 // New returns an Engine.
 func New(st store.Store, lv *live.State) *Engine {
-	return &Engine{Store: st, Live: lv, history: map[string][]float64{}}
+	return &Engine{Store: st, Live: lv, Log: slog.New(slog.DiscardHandler), history: map[string][]float64{}}
 }
 
 // Compute builds the current state. It is not Ready until telemetry and scoring have arrived.
@@ -128,8 +178,13 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 	car := Car{CarID: tel.CarID, VehicleName: tel.VehicleName, Lap: tel.Lap, Fuel: tel.Fuel,
 		FuelCapacity: tel.FuelCapacity, Wear: tel.Wear}
 	if me != nil {
-		car.Driver, car.Class, car.Place = me.Driver, me.VehicleClass, me.Place
+		car.Driver, car.Class, car.Place, car.Control = me.Driver, me.VehicleClass, me.Place, me.Control
+		car.PitState, car.Penalties = me.PitState, me.Penalties
 	}
+	if tel.DentMax != nil {
+		car.DentMax = *tel.DentMax
+	}
+	car.Overheating, car.Detached = tel.Overheating, tel.Detached
 
 	params, ok, err := e.Store.GetParams(ctx, sc.Track, tel.VehicleName)
 	if err != nil {
@@ -144,6 +199,17 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
+	wears, err := e.Store.LapWears(ctx, snap.SessionID, tel.CarID, tel.VehicleName)
+	if err != nil {
+		return State{}, err
+	}
+	st.Wear = wearStats(laps, wears)
+	st.Fit = fitModel(laps, setBoundaries(laps), e.wetLaps(ctx, snap.SessionID, tel.CarID, tel.VehicleName, len(laps)))
+	allStops, err := e.Store.Stops(ctx, snap.SessionID)
+	if err != nil {
+		return State{}, err
+	}
+	st.Pits = pitStats(allStops, tel.CarID, tel.VehicleName)
 	model, lapTime, lastDriver := fuelModel(laps)
 	if car.Driver == "" {
 		car.Driver = lastDriver
@@ -198,6 +264,22 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 		st.StintPlan = plan
 	}
 	st.Opponents = e.opponents(snap.SessionID, car, sc)
+	st.TrackLength, st.Field = field(sc, tel)
+	st.Tyres = tyreState(tel)
+	if tel != nil {
+		st.PitMenu = tel.PitMenu
+	}
+	if e.Commands != nil {
+		st.Command = e.Commands.Status()
+		st.Agents = e.Commands.Agents()
+	}
+	st.Weather = weatherState(sc.Weather, e.weatherHistory(ctx, snap.SessionID, snap.ScoringET, sc.Weather))
+	st.Fcy = isFCY(sc)
+	st.Sections = e.trackStats(snap.SessionID, sc.Track, car, sc.TrackLength, st.Opponents)
+	st.Strategy, err = e.strategyState(ctx, snap, car, params, lapTime, st.StintPlan, st.Fcy)
+	if err != nil {
+		return State{}, err
+	}
 	return st, nil
 }
 
@@ -290,6 +372,9 @@ func (e *Engine) stintPlan(ctx context.Context, snap live.Snapshot, car Car, p s
 
 	// Every stop ends a stint, so n stops mean n completed stints.
 	start := snap.FirstET
+	if len(mine) > 0 && start > mine[0].EntryET {
+		start = 0 // the backend restarted after the first stop; the true start is unknown, the session start is the bound
+	}
 	var done []strategy.ActualStint
 	for i, s := range mine {
 		if i >= len(planned) {
@@ -385,3 +470,87 @@ func (e *Engine) opponents(session string, car Car, sc *wire.Scoring) Opponents 
 	}
 	return out
 }
+
+// field lists the cars that report a distance along the lap.
+func field(sc *wire.Scoring, tel *wire.Telemetry) (float64, []FieldCar) {
+	if sc.TrackLength <= 0 {
+		return 0, nil
+	}
+	var out []FieldCar
+	for _, v := range sc.Vehicles {
+		if v.LapDist == nil {
+			continue
+		}
+		out = append(out, FieldCar{CarID: v.CarID, VehicleName: v.VehicleName, Driver: v.Driver,
+			Class: v.VehicleClass, Place: v.Place, LapDist: *v.LapDist, InPits: v.InPits,
+			OffTrack: offTrack(v.PathLateral, v.TrackEdge, v.InPits),
+			Ours:     v.CarID == tel.CarID && v.VehicleName == tel.VehicleName})
+	}
+	return sc.TrackLength, out
+}
+
+// isFCY is true during a full course yellow: game phase 6 or one of the full course yellow states.
+func isFCY(sc *wire.Scoring) bool {
+	if sc.GamePhase != nil && *sc.GamePhase == 6 {
+		return true
+	}
+	return sc.YellowState != nil && *sc.YellowState >= 1 && *sc.YellowState <= 3
+}
+
+// strategyState analyses the other cars. The lap statistics of the field are reloaded every few seconds.
+func (e *Engine) strategyState(ctx context.Context, snap live.Snapshot, car Car, p store.Params, lapTime float64, plan *Plan, fcy bool) (*Strategy, error) {
+	r := &e.rivals
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.reset(snap.SessionID)
+	r.watchFuel(snap.Scoring.Vehicles)
+	if r.laps == nil || time.Since(r.at) > rivalRefresh {
+		laps, err := e.Store.Laps(ctx, snap.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		r.laps, r.at = summarizeField(laps), time.Now()
+	}
+	swap := false
+	if plan != nil {
+		for i, en := range plan.Entries {
+			if en.Current && i+1 < len(plan.Entries) {
+				swap = plan.Entries[i+1].DriverSwap
+			}
+		}
+	}
+	return r.analyse(strategyInput{sc: snap.Scoring, car: car, params: p, lapTime: lapTime, fcy: fcy, swap: swap, stats: r.laps}), nil
+}
+
+// wetCache remembers which laps of the driven car were driven on a wet track.
+type wetCache struct {
+	mu      sync.Mutex
+	session string
+	car     string
+	laps    int
+	wet     map[int]bool
+}
+
+// wetLaps returns a test for laps driven on a wet track. The stored conditions are read again only when the car has
+// completed another lap.
+func (e *Engine) wetLaps(ctx context.Context, session string, carID int, vehicle string, laps int) func(int) bool {
+	c := &e.wet
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := carKey(vehicle, carID)
+	if c.session != session || c.car != key || c.laps != laps {
+		c.session, c.car, c.laps, c.wet = session, key, laps, map[int]bool{}
+		if list, err := e.Store.LapConditions(ctx, session); err == nil {
+			for _, l := range list {
+				if l.CarID == carID && l.VehicleName == vehicle && ((l.Wetness != nil && *l.Wetness > wetLap) || (l.Rain != nil && *l.Rain > wetLap)) {
+					c.wet[l.Lap] = true
+				}
+			}
+		}
+	}
+	wet := c.wet
+	return func(lap int) bool { return wet[lap] }
+}
+
+// wetLap is the wetness or rain above which a lap does not tell about the dry lap time model.
+const wetLap = 0.1

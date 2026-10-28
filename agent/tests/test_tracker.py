@@ -68,7 +68,7 @@ def test_pit_exit_reports_fuel_added_and_tyre_change():
     tr.set_player(PlayerSample(0, 30.0, [0.2] * 4))
     step(tr, [car(5)], 100)
     step(tr, [car(5, pits=True)], 110)
-    tr.set_player(PlayerSample(0, 85.5, [0.95] * 4))  # refuelled and fresh tyres (direction does not matter)
+    tr.set_player(PlayerSample(0, 85.5, [0.95] * 4))  # refuelled and fresh tyres (wear rises when tyres are new)
     out = step(tr, [car(5, pits=False)], 150)
     assert out[0].payload == {"kind": "pit_exit", "car_id": 0, "vehicle_name": "me", "fuel_added": 55.5,
                               "tyres_changed": True}
@@ -77,6 +77,15 @@ def test_pit_exit_reports_fuel_added_and_tyre_change():
     tr.set_player(PlayerSample(0, 88.0, [0.94] * 4))
     out = step(tr, [car(6, pits=False)], 430)
     assert out[0].payload["tyres_changed"] is False and out[0].payload["fuel_added"] == 2.5
+
+
+def test_a_small_rise_of_the_wear_value_is_a_tyre_change():
+    tr = Tracker()
+    tr.set_player(PlayerSample(0, 30.0, [0.90] * 4))
+    step(tr, [car(5)], 100)
+    step(tr, [car(5, pits=True)], 110)
+    tr.set_player(PlayerSample(0, 60.0, [1.0] * 4))  # slightly worn tyres replaced by new ones
+    assert step(tr, [car(5, pits=False)], 150)[0].payload["tyres_changed"] is True
 
 
 def test_pit_exit_of_an_opponent_has_no_fuel_data():

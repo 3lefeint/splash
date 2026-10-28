@@ -105,6 +105,9 @@ func TestRescheduleRedistributesAfterCap(t *testing.T) {
 	}
 	var total float64
 	for _, e := range res.Entries[1:] {
+		if e.Reserve {
+			continue
+		}
 		d := e.End - e.Start
 		total += d
 		if d > 2*h+1e-6 {
@@ -124,5 +127,55 @@ func TestRescheduleErrors(t *testing.T) {
 	in.Done = []ActualStint{{"a", 0, h}}
 	if res, err := Reschedule(in); err != nil || len(res.Entries) != 1 {
 		t.Fatalf("finished plan: %v %v", res, err)
+	}
+}
+
+func TestRescheduleCutsStintsBehindTheFinishAndKeepsTwoAsReserve(t *testing.T) {
+	var planned []PlannedStint
+	for i := 0; i < 16; i++ {
+		planned = append(planned, PlannedStint{"d", 65 * 60})
+	}
+	// the race has 3 h left after the current stint, the plan covers 17 h
+	in := PlanInput{Planned: planned, Current: &CurrentStint{Start: 0, ExpectedEnd: 3600}, RaceEnd: 3600 + 3*3600}
+	res, err := Reschedule(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var needed, reserve int
+	var last PlanEntry
+	for _, e := range res.Entries[1:] {
+		if e.Reserve {
+			reserve++
+			if !near(e.End-e.Start, 65*60) || e.Start < in.RaceEnd-1e-6 {
+				t.Fatalf("reserve %+v", e)
+			}
+			continue
+		}
+		needed++
+		last = e
+		if d := e.End - e.Start; d > 65*60+1e-6 || d < 55*60 {
+			t.Fatalf("a needed stint of %v s, planned 3900", d)
+		}
+	}
+	if needed != 3 || reserve != ReserveStints || !near(last.End, in.RaceEnd) {
+		t.Fatalf("needed %d reserve %d end %v", needed, reserve, last.End)
+	}
+	if res.Entries[1].No != 2 || res.Entries[len(res.Entries)-1].No != 2+needed+reserve-1 {
+		t.Fatalf("numbering %+v", res.Entries)
+	}
+}
+
+func TestRescheduleNeedsMoreStintsWhenTheCapLeavesTimeOver(t *testing.T) {
+	planned := []PlannedStint{{"a", h}, {"b", 2 * h}, {"c", 2 * h}, {"d", 2 * h}, {"e", 2 * h}}
+	in := PlanInput{Planned: planned, Current: &CurrentStint{Start: 0, ExpectedEnd: h}, RaceEnd: h + 5*h, MaxStint: 2 * h}
+	res, _ := Reschedule(in)
+	var needed int
+	for _, e := range res.Entries[1:] {
+		if !e.Reserve {
+			needed++
+		}
+	}
+	if needed != 3 || res.Shortfall != 0 { // 5 h at most 2 h each: three stints
+		t.Fatalf("needed %d shortfall %v", needed, res.Shortfall)
 	}
 }

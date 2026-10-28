@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ApiError, clearOverride, getParams, putParams, setOverride } from '../lib/api';
   import { fixed } from '../lib/format';
+  import { announcer } from '../lib/announcer.svelte';
   import { settings, t } from '../lib/settings.svelte';
   import { live } from '../lib/store';
   import type { OverrideKey, Params } from '../lib/types';
@@ -147,7 +148,62 @@
   <p class="muted">{t('set.wearHelp')}</p>
 </section>
 
+<section>
+  <h2>{t('set.sound')}</h2>
+  <p class="muted">{t('set.soundHelp')}</p>
+  <div class="range">
+    <select bind:value={settings.soundMode} onchange={() => { settings.save(); announcer.test(); }}>
+      <option value="off">{t('sound.off')}</option>
+      <option value="beep">{t('sound.beep')}</option>
+      <option value="voice">{t('sound.voice')}</option>
+    </select>
+    <button type="button" onclick={() => announcer.test()}>{t('set.soundTest')}</button>
+  </div>
+  <div class="range">
+    <select bind:value={settings.voiceName} onchange={() => { settings.save(); announcer.test(); }} disabled={announcer.voices.length === 0}>
+      <option value="">{t('set.voiceAuto')}</option>
+      {#each announcer.voices as v, i (i)}<option value={v.voiceURI}>{v.name} ({v.lang})</option>{/each}
+    </select>
+  </div>
+  <p class="muted">
+    {#if announcer.speech === 'none'}{t('set.voiceNone')}
+    {:else if announcer.speech === 'foreign'}{t('set.voiceForeign', { name: announcer.voice?.name ?? '', lang: announcer.voice?.lang ?? '' })}
+    {:else}{t('set.voiceOk', { name: announcer.voice?.name ?? '', lang: announcer.voice?.lang ?? '' })}{/if}
+    {#if announcer.speechError}<span class="err">{t('set.voiceError', { e: announcer.speechError })}</span>{/if}
+  </p>
+</section>
+
+<section>
+  <h2>{t('set.tyreRanges')}</h2>
+  <p class="muted">{t('set.tyreHelp')}</p>
+  {#each settings.tyreRanges as r, i (i)}
+    <div class="range">
+      <input class="rname" placeholder={t('set.tyreName')} bind:value={r.name} onchange={() => settings.save()} maxlength="30" />
+      <input type="number" step="1" bind:value={r.low} onchange={() => settings.save()} aria-label={t('set.tyreLow')} />
+      <span class="muted">–</span>
+      <input type="number" step="1" bind:value={r.high} onchange={() => settings.save()} aria-label={t('set.tyreHigh')} />
+      <span class="muted">°C</span>
+      <button type="button" onclick={() => { settings.tyreRanges.splice(i, 1); settings.save(); }} aria-label={t('set.tyreRemove')}>×</button>
+    </div>
+  {/each}
+  <div class="range">
+    <span class="rname muted">{t('set.tyreOther')}</span>
+    <input type="number" step="1" bind:value={settings.tyreFallback.low} onchange={() => settings.save()} aria-label={t('set.tyreLow')} />
+    <span class="muted">–</span>
+    <input type="number" step="1" bind:value={settings.tyreFallback.high} onchange={() => settings.save()} aria-label={t('set.tyreHigh')} />
+    <span class="muted">°C</span>
+  </div>
+  <div class="range">
+    <button type="button" onclick={() => { settings.tyreRanges.push({ name: '', low: 80, high: 100 }); settings.save(); }}>{t('set.tyreAdd')}</button>
+    <button type="button" onclick={() => settings.resetTyreRanges()}>{t('set.tyreReset')}</button>
+  </div>
+</section>
+
 <style>
+  .range { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+  .range input[type='number'] { width: 5.5rem; }
+  .rname { width: 11rem; }
+  .err { color: var(--bad, #e5534b); }
   section { margin: 24px 0; max-width: 900px; }
   .fields { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); margin: 12px 0; }
   label { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; color: var(--muted); }

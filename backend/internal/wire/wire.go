@@ -18,6 +18,8 @@ const (
 	TypeTelemetry = "telemetry"
 	TypeLap       = "lap"
 	TypeEvent     = "event"
+
+	TypeCommandResult = "command_result"
 )
 
 // Envelope is the common part of every agent message.
@@ -38,10 +40,39 @@ type Message struct {
 	Body any
 }
 
-// Ack is the only backend to agent message.
+// Ack acknowledges agent messages. Command is the other backend to agent message.
 type Ack struct {
 	Type string `json:"type"`
 	Seq  int64  `json:"seq"`
+}
+
+// Step sets one row of the pit menu. Choice is max, min, a number or a text the choice contains.
+type Step struct {
+	Category string `json:"category"`
+	Choice   string `json:"choice"`
+}
+
+// Command asks the driver agent to set rows of the pit menu.
+type Command struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	// Kind is pit_menu (the default when empty) or pit_request.
+	Kind  string `json:"kind,omitempty"`
+	Steps []Step `json:"steps,omitempty"`
+}
+
+// Command kinds.
+const (
+	CommandPitMenu    = "pit_menu"
+	CommandPitRequest = "pit_request"
+)
+
+// CommandResult is the agent's answer to a Command.
+type CommandResult struct {
+	ID      string `json:"id"`
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
+	Applied []Step `json:"applied"`
 }
 
 // NewAck returns an acknowledgement for seq.
@@ -56,30 +87,44 @@ type Weather struct {
 	AmbientTemp *float64 `json:"ambient_temp"`
 	TrackTemp   *float64 `json:"track_temp"`
 	Rain        *float64 `json:"rain"`
+	Wetness     *float64 `json:"wetness"`
+	DarkCloud   *float64 `json:"dark_cloud"`
 }
 
 type ScoringVehicle struct {
-	CarID            int      `json:"car_id"`
-	VehicleName      string   `json:"vehicle_name"`
-	Driver           string   `json:"driver"`
-	VehicleClass     string   `json:"vehicle_class"`
-	IsPlayer         bool     `json:"is_player"`
-	Control          *int     `json:"control"`
-	Place            int      `json:"place"`
-	Laps             int      `json:"laps"`
-	LastLap          *float64 `json:"last_lap"`
-	BestLap          *float64 `json:"best_lap"`
-	LastS1           *float64 `json:"last_s1"`
-	LastS2           *float64 `json:"last_s2"`
-	InPits           bool     `json:"in_pits"`
-	PitState         int      `json:"pit_state"`
-	NumPitstops      int      `json:"num_pitstops"`
-	TimeBehindNext   *float64 `json:"time_behind_next"`
-	LapsBehindLeader int      `json:"laps_behind_leader"`
+	CarID            int       `json:"car_id"`
+	VehicleName      string    `json:"vehicle_name"`
+	Driver           string    `json:"driver"`
+	VehicleClass     string    `json:"vehicle_class"`
+	IsPlayer         bool      `json:"is_player"`
+	Control          *int      `json:"control"`
+	Place            int       `json:"place"`
+	Laps             int       `json:"laps"`
+	LastLap          *float64  `json:"last_lap"`
+	BestLap          *float64  `json:"best_lap"`
+	LastS1           *float64  `json:"last_s1"`
+	LastS2           *float64  `json:"last_s2"`
+	InPits           bool      `json:"in_pits"`
+	LapDist          *float64  `json:"lap_dist"`
+	X                *float64  `json:"x"`
+	Z                *float64  `json:"z"`
+	PitState         int       `json:"pit_state"`
+	NumPitstops      int       `json:"num_pitstops"`
+	TimeBehindNext   *float64  `json:"time_behind_next"`
+	LapsBehindLeader int       `json:"laps_behind_leader"`
+	Fuel             *float64  `json:"fuel"`
+	FuelCapacity     *float64  `json:"fuel_capacity"`
+	Wear             []float64 `json:"wear"`
+	Penalties        int       `json:"penalties"`
+	PathLateral      *float64  `json:"path_lateral"`
+	TrackEdge        *float64  `json:"track_edge"`
+	// TyreWear was the mean wear sent by agents before Wear; it is accepted and ignored so an older agent keeps working.
+	TyreWear *float64 `json:"tyre_wear"`
 }
 
 type Scoring struct {
 	Track       string           `json:"track"`
+	TrackLength float64          `json:"track_length"`
 	SessionType string           `json:"session_type"`
 	EndET       float64          `json:"end_et"`
 	GamePhase   *int             `json:"game_phase"`
@@ -99,6 +144,28 @@ type Telemetry struct {
 	Wear            []float64 `json:"wear"`
 	TyreCarcassTemp []float64 `json:"tyre_carcass_temp"`
 	Damage          *float64  `json:"damage"`
+
+	TyreSurfaceTemp [][]float64 `json:"tyre_surface_temp"`
+	TyreInnerTemp   [][]float64 `json:"tyre_inner_temp"`
+	TyrePressure    []float64   `json:"tyre_pressure"`
+	BrakeTemp       []float64   `json:"brake_temp"`
+	EngineWaterTemp *float64    `json:"engine_water_temp"`
+	EngineOilTemp   *float64    `json:"engine_oil_temp"`
+	CompoundFront   string      `json:"compound_front"`
+	CompoundRear    string      `json:"compound_rear"`
+	PitMenu         *PitMenu    `json:"pit_menu"`
+	Brake           *float64    `json:"brake"`
+	DentMax         *int        `json:"dent_max"`
+	Overheating     bool        `json:"overheating"`
+	Detached        bool        `json:"detached"`
+}
+
+// PitMenu is the row of the pit menu that is selected in the game.
+type PitMenu struct {
+	Category    string `json:"category"`
+	Choice      string `json:"choice"`
+	ChoiceIndex int    `json:"choice_index"`
+	Choices     int    `json:"choices"`
 }
 
 type Lap struct {
@@ -189,6 +256,12 @@ func Decode(data []byte) (Message, error) {
 		var b Event
 		if err = strictUnmarshal(env.Payload, &b); err == nil {
 			err = b.validate()
+		}
+		msg.Body = b
+	case TypeCommandResult:
+		var b CommandResult
+		if err = strictUnmarshal(env.Payload, &b); err == nil && b.ID == "" {
+			err = errors.New("id is required")
 		}
 		msg.Body = b
 	default:

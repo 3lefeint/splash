@@ -19,6 +19,7 @@ class Config:
     record_file: str
     telemetry_hz: float
     scoring_hz: float
+    raw_file: str = ""
 
 
 def load(path: str | Path) -> Config:
@@ -39,6 +40,7 @@ def load(path: str | Path) -> Config:
         record_file=str(agent.get("record_file", "")),
         telemetry_hz=float(poll.get("telemetry_hz", 5)),
         scoring_hz=float(poll.get("scoring_hz", 2)),
+        raw_file=str(agent.get("raw_file", "")),
     )
     if not cfg.url.startswith(("ws://", "wss://")):
         raise ConfigError("server.url must start with ws:// or wss://")

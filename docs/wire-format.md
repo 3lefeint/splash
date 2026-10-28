@@ -9,7 +9,7 @@ Every message carries an envelope: `v`, `type`, `agent_id`, `role`, `session_id`
 | type | sent by | content |
 |---|---|---|
 | `hello` | both | first message after (re)connect, includes `resume_from_seq` |
-| `scoring` | both | whole field: positions, laps, pit state, weather |
+| `scoring` | both | whole field: places, positions on the map, laps, pit state, weather |
 | `telemetry` | driver | fuel and tyre wear of the driven car |
 | `lap` | both | completed lap record (`laps` table); fuel and tyre fields stay empty for opponents |
 | `event` | both | pit entry/exit, driver swap, FCY start/end |

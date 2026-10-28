@@ -1,4 +1,4 @@
-export const routes = ['dashboard', 'plan', 'settings', 'rest'] as const;
+export const routes = ['dashboard', 'plan', 'map', 'sessions', 'settings', 'tracks', 'rest'] as const;
 export type Route = (typeof routes)[number];
 
 export function parseRoute(hash: string): Route {

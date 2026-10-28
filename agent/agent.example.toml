@@ -11,6 +11,9 @@ role = "driver"
 spool_dir = "spool"
 # Optional: write every message to this NDJSON file (about 2-3 GB per 24 hours); usable with splash-replay.
 record_file = ""
+# Optional: write the raw plugin buffers (gzip if the name ends in .gz) so a session can be replayed offline with
+# "splash-agent replay-raw". Use it for short test sessions.
+raw_file = ""
 
 [poll]
 telemetry_hz = 5
