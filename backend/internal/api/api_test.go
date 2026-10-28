@@ -11,34 +11,40 @@ import (
 	"testing"
 	"time"
 
-	"github.com/3lefeint/splash/backend/internal/commands"
 	"github.com/3lefeint/splash/backend/internal/engine"
 	"github.com/3lefeint/splash/backend/internal/live"
 	"github.com/3lefeint/splash/backend/internal/store"
+	"github.com/3lefeint/splash/backend/internal/teams"
 	"github.com/3lefeint/splash/backend/internal/trackmap"
 	"github.com/3lefeint/splash/backend/internal/wire"
 )
 
 type rig struct {
-	st  *store.Memory
-	lv  *live.State
+	db  *store.Memory
+	st  store.Store // the store of the team "default"
+	lv  *live.State // its live state
+	rt  *teams.Runtime
 	api *API
 	srv *httptest.Server
 }
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
-	st := store.NewMemory()
-	lv := &live.State{}
-	a := New(st, engine.New(st, lv))
-	a.Hub.Interval = 20 * time.Millisecond
+	db := store.NewMemory()
+	reg, err := teams.NewRegistry(context.Background(), db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(reg)
+	a.Interval = 20 * time.Millisecond
 	mux := http.NewServeMux()
 	a.Register(mux)
 	srv := httptest.NewServer(mux)
 	ctx, cancel := context.WithCancel(context.Background())
-	go a.Hub.Run(ctx)
+	a.Start(ctx)
 	t.Cleanup(func() { cancel(); srv.Close() })
-	return &rig{st, lv, a, srv}
+	rt := reg.Get(reg.DefaultID())
+	return &rig{db, rt.Store, rt.Live, rt, a, srv}
 }
 
 func (r *rig) do(t *testing.T, method, path, body string) (int, string) {
@@ -71,8 +77,12 @@ func TestParamsRoundTrip(t *testing.T) {
 	}
 	code, body = r.do(t, "GET", "/api/params?track=monza&car=me", "")
 	var p store.Params
-	if json.Unmarshal([]byte(body), &p); code != 200 || p.PitThroughGreen != 21.5 || !p.ParallelService || p.Track != "monza" {
+	if json.Unmarshal([]byte(body), &p); code != 200 || p.PitThroughGreen != 21.5 || p.ParallelService || p.Track != "monza" {
 		t.Fatalf("code=%d p=%+v", code, p)
+	}
+	// an older client may still send parallel_service: it is accepted and has no effect
+	if strings.Contains(body, "parallel") {
+		t.Fatalf("parallel_service is not answered any more: %s", body)
 	}
 	if code, body := r.do(t, "GET", "/api/params", ""); code != 200 || !strings.HasPrefix(body, "[{") {
 		t.Fatalf("list: %d %s", code, body)
@@ -91,6 +101,52 @@ func TestParamsValidation(t *testing.T) {
 		if code, _ := r.do(t, "PUT", "/api/params", body); code != 400 {
 			t.Errorf("%s: code=%d", name, code)
 		}
+	}
+}
+
+func TestParamsFitSettings(t *testing.T) {
+	r := newRig(t)
+	// unset settings come back as the defaults
+	code, body := r.do(t, "PUT", "/api/params?track=monza&car=me", `{"reserve":2}`)
+	var p store.Params
+	if json.Unmarshal([]byte(body), &p); code != 200 || p.FitMinLaps != 5 || p.FitSlowPercent != 8 || !*p.FitSkipFCY || !*p.FitSkipWet {
+		t.Fatalf("defaults: code=%d %s", code, body)
+	}
+	// explicit values, also switched off, round trip
+	code, _ = r.do(t, "PUT", "/api/params?track=monza&car=me", `{"fit_min_laps":10,"fit_slow_percent":15,"fit_skip_fcy":false,"fit_skip_wet":false}`)
+	_, body = r.do(t, "GET", "/api/params?track=monza&car=me", "")
+	p = store.Params{}
+	if json.Unmarshal([]byte(body), &p); code != 200 || p.FitMinLaps != 10 || p.FitSlowPercent != 15 || *p.FitSkipFCY || *p.FitSkipWet {
+		t.Fatalf("round trip: %s", body)
+	}
+	// out of range values are rejected with a clear error and change nothing
+	for _, bad := range []string{`{"fit_min_laps":2}`, `{"fit_min_laps":21}`, `{"fit_slow_percent":1}`, `{"fit_slow_percent":31}`, `{"fit_slow_percent":-3}`} {
+		code, body := r.do(t, "PUT", "/api/params?track=monza&car=me", bad)
+		if code != 400 {
+			t.Errorf("%s: code=%d", bad, code)
+		}
+		if strings.HasPrefix(bad, `{"fit_min`) && !strings.Contains(body, "fit_min_laps must be 3 to 20") {
+			t.Errorf("%s: unclear error %s", bad, body)
+		}
+	}
+	_, body = r.do(t, "GET", "/api/params?track=monza&car=me", "")
+	if !strings.Contains(body, `"fit_min_laps":10`) {
+		t.Fatalf("a rejected write changed the stored values: %s", body)
+	}
+}
+
+func TestParamsTyreChangeDefaultAndOverride(t *testing.T) {
+	r := newRig(t)
+	_, body := r.do(t, "PUT", "/api/params?track=monza&car=me", `{"reserve":2}`)
+	var p store.Params
+	if json.Unmarshal([]byte(body), &p); p.TyreChange != 17 {
+		t.Fatalf("default: %s", body)
+	}
+	r.do(t, "PUT", "/api/params?track=monza&car=me", `{"tyre_change":19.5}`)
+	_, body = r.do(t, "GET", "/api/params?track=monza&car=me", "")
+	p = store.Params{}
+	if json.Unmarshal([]byte(body), &p); p.TyreChange != 19.5 {
+		t.Fatalf("override: %s", body)
 	}
 }
 
@@ -232,11 +288,7 @@ func TestPitSetupsAreStoredListedAndDeleted(t *testing.T) {
 		t.Fatalf("delete %d", code)
 	}
 	step := `{"name":"Max","steps":[{"category":"FUEL:","choice":"max"}]}`
-	if code, _ := r.do(t, "POST", "/api/pit-setups/apply", step); code != 503 {
-		t.Fatalf("without hub %d", code)
-	}
 	// without a connected driver agent the command cannot be sent
-	r.api.Cmds = commands.New()
 	if code, _ := r.do(t, "POST", "/api/pit-setups/apply", step); code != 409 {
 		t.Fatalf("apply %d", code)
 	}
@@ -247,14 +299,13 @@ func TestMapProgressEndpoint(t *testing.T) {
 	if code, _ := r.do(t, "GET", "/api/track-map/progress?track=ring", ""); code != 404 {
 		t.Fatalf("without recorder %d", code)
 	}
-	r.api.MapProgress = func(track string) *trackmap.Progress {
-		if track != "ring" {
-			return nil
-		}
-		return &trackmap.Progress{Track: "ring", Covered: 0.4, Points: [][2]float64{{0, 0}, {1, 1}}}
+	for _, d := range []float64{0, 100, 200, 300} {
+		x, z := d, d/2
+		r.rt.Ingest.Maps.Observe(context.Background(), "s1", wire.Scoring{Track: "ring", TrackLength: 1000,
+			Vehicles: []wire.ScoringVehicle{{CarID: 0, VehicleName: "v", Laps: 2, LapDist: &d, X: &x, Z: &z}}})
 	}
 	code, body := r.do(t, "GET", "/api/track-map/progress?track=ring", "")
-	if code != 200 || !strings.Contains(body, `"covered":0.4`) {
+	if code != 200 || !strings.Contains(body, `"track":"ring"`) {
 		t.Fatalf("%d %s", code, body)
 	}
 	if code, _ := r.do(t, "GET", "/api/track-map/progress?track=other", ""); code != 404 {
@@ -295,10 +346,6 @@ func TestSessionsListAndCsvExport(t *testing.T) {
 
 func TestPitRequestNeedsADriverAgent(t *testing.T) {
 	r := newRig(t)
-	if code, _ := r.do(t, "POST", "/api/pit-request", ""); code != 503 {
-		t.Fatalf("without hub %d", code)
-	}
-	r.api.Cmds = commands.New()
 	if code, _ := r.do(t, "POST", "/api/pit-request?name=Stopp", ""); code != 409 {
 		t.Fatalf("without agent %d", code)
 	}

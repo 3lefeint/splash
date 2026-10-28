@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -92,11 +93,11 @@ func runSuite(t *testing.T, s Store) {
 		if _, ok, _ := s.GetParams(ctx, "monza", "gt3"); ok {
 			t.Fatal("unexpected params")
 		}
-		p := Params{Track: "monza", Car: "gt3", PitThroughGreen: 22.5, RefuelRate: 2.8, ParallelService: true, Reserve: 2}
+		p := Params{Track: "monza", Car: "gt3", PitThroughGreen: 22.5, RefuelRate: 2.8, Reserve: 2}
 		s.SetParams(ctx, p)
 		s.SetParams(ctx, Params{Track: "monza", Car: "hyper"})
 		got, ok, err := s.GetParams(ctx, "monza", "gt3")
-		if err != nil || !ok || got != p {
+		if err != nil || !ok || !reflect.DeepEqual(got, p.WithDefaults()) {
 			t.Fatalf("got=%+v ok=%v err=%v", got, ok, err)
 		}
 		p.PitThroughGreen = 25
@@ -106,6 +107,28 @@ func runSuite(t *testing.T, s Store) {
 		}
 		if list, _ := s.ListParams(ctx); len(list) != 2 {
 			t.Fatalf("list=%v", list)
+		}
+	})
+
+	t.Run("lap time model settings default and round trip", func(t *testing.T) {
+		off := false
+		// unset values come back as the defaults
+		s.SetParams(ctx, Params{Track: "spa", Car: "gt3"})
+		got, ok, err := s.GetParams(ctx, "spa", "gt3")
+		if err != nil || !ok || got.FitMinLaps != 5 || got.FitSlowPercent != 8 || got.FitSkipFCY == nil || !*got.FitSkipFCY || got.FitSkipWet == nil || !*got.FitSkipWet {
+			t.Fatalf("defaults: %+v ok=%v err=%v", got, ok, err)
+		}
+		// explicit values, also switched off, are stored and listed
+		s.SetParams(ctx, Params{Track: "spa", Car: "gt3", FitMinLaps: 12, FitSlowPercent: 4.5, FitSkipFCY: &off, FitSkipWet: &off})
+		got, _, _ = s.GetParams(ctx, "spa", "gt3")
+		if got.FitMinLaps != 12 || got.FitSlowPercent != 4.5 || *got.FitSkipFCY || *got.FitSkipWet {
+			t.Fatalf("round trip: %+v", got)
+		}
+		list, _ := s.ListParams(ctx)
+		for _, p := range list {
+			if p.Track == "spa" && (p.FitMinLaps != 12 || *p.FitSkipFCY) {
+				t.Fatalf("list: %+v", p)
+			}
 		}
 	})
 
@@ -269,10 +292,15 @@ func runSuite(t *testing.T, s Store) {
 			t.Fatal(err)
 		}
 		l.Exit = &pitlane.Point{9, 9}
+		ed, xd := 4900.5, 120.0
+		l.EntryDist, l.ExitDist = &ed, &xd
 		s.SavePitLane(ctx, l) // replaces
 		got, ok, err := s.GetPitLane(ctx, "ring")
 		if err != nil || !ok || got.Entry == nil || got.Entry[1] != 2 || got.Exit == nil || got.Exit[0] != 9 || len(got.Boxes) != 2 || got.Boxes[1][1] != -6 {
 			t.Fatalf("got=%+v ok=%v err=%v", got, ok, err)
+		}
+		if got.EntryDist == nil || *got.EntryDist != 4900.5 || got.ExitDist == nil || *got.ExitDist != 120 {
+			t.Fatalf("lap distances: %+v", got)
 		}
 	})
 
@@ -318,4 +346,242 @@ func runSuite(t *testing.T, s Store) {
 	})
 }
 
-func TestMemory(t *testing.T) { runSuite(t, NewMemory()) }
+func TestMemory(t *testing.T) {
+	db := NewMemory()
+	runSuite(t, db.ForTeam(1))
+	runTeamSuite(t, db)
+}
+
+// runTeamSuite checks that teams share nothing but track data, and the agent directory.
+func runTeamSuite(t *testing.T, db DB) {
+	ctx := context.Background()
+	def, ok, err := db.TeamByName(ctx, DefaultTeamName)
+	if err != nil || !ok {
+		t.Fatalf("default team: %v %v", ok, err)
+	}
+	// Two new teams, so the data the shared suite left in the default team does not matter.
+	first, err := db.CreateTeam(ctx, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := db.CreateTeam(ctx, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateTeam(ctx, "other"); err != ErrExists {
+		t.Fatalf("duplicate team: %v", err)
+	}
+	a, b := db.ForTeam(first.ID), db.ForTeam(other.ID)
+	const sess = "same-session" // both teams race in the same game session, so the id is the same
+
+	t.Run("laps, stops, weather, conditions, wear and progress are per team", func(t *testing.T) {
+		a.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 1, LapTime: f(90)})
+		b.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 1, LapTime: f(100)})
+		b.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 2, LapTime: f(101)})
+		la, _ := a.Laps(ctx, sess)
+		lb, _ := b.Laps(ctx, sess)
+		if len(la) != 1 || *la[0].LapTime != 90 || len(lb) != 2 || *lb[0].LapTime != 100 {
+			t.Fatalf("laps a=%+v b=%+v", la, lb)
+		}
+		if l, _ := a.LapsOfCar(ctx, sess, 0, "v"); len(l) != 1 {
+			t.Fatalf("laps of car: %+v", l)
+		}
+
+		entry := wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "v"}
+		exit := wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "v", FuelAdded: f(40)}
+		a.SaveEvent(ctx, sess, 1000, entry)
+		b.SaveEvent(ctx, sess, 1000, entry) // same entry time: must not count as a duplicate of team a's stop
+		b.SaveEvent(ctx, sess, 1050, exit)
+		sa, _ := a.Stops(ctx, sess)
+		sb, _ := b.Stops(ctx, sess)
+		if len(sa) != 1 || sa[0].ExitET != nil || len(sb) != 1 || sb[0].ExitET == nil {
+			t.Fatalf("stops a=%+v b=%+v", sa, sb)
+		}
+		a.AddStopped(ctx, sess, 0, "v", Standing{From: 1010, To: 1030, Work: 15})
+		if sb, _ = b.Stops(ctx, sess); sb[0].Stopped != 0 {
+			t.Fatalf("stand-still leaked into the other team: %+v", sb)
+		}
+
+		a.SaveWeatherPoint(ctx, sess, WeatherPoint{ET: 5, Ambient: f(20)})
+		b.SaveWeatherPoint(ctx, sess, WeatherPoint{ET: 5, Ambient: f(30)})
+		wa, _ := a.WeatherPoints(ctx, sess, 10)
+		wb, _ := b.WeatherPoints(ctx, sess, 10)
+		if len(wa) != 1 || *wa[0].Ambient != 20 || len(wb) != 1 || *wb[0].Ambient != 30 {
+			t.Fatalf("weather a=%+v b=%+v", wa, wb)
+		}
+
+		a.SaveLapConditions(ctx, LapConditions{SessionID: sess, CarID: 0, VehicleName: "v", Lap: 1})
+		if c, _ := b.LapConditions(ctx, sess); len(c) != 0 {
+			t.Fatalf("conditions leaked: %+v", c)
+		}
+		a.SaveLapWear(ctx, sess, 0, "v", wear.LapWear{Lap: 1, Coverage: 1})
+		if w, _ := b.LapWears(ctx, sess, 0, "v"); len(w) != 0 {
+			t.Fatalf("wear leaked: %+v", w)
+		}
+
+		a.SetProgress(ctx, "agent", sess, 9)
+		if _, known, _ := b.Progress(ctx, "agent", sess); known {
+			t.Fatal("progress leaked")
+		}
+		if v, known, _ := a.Progress(ctx, "agent", sess); !known || v != 9 {
+			t.Fatalf("progress %d %v", v, known)
+		}
+	})
+
+	t.Run("sessions are per team", func(t *testing.T) {
+		now := time.Now()
+		a.TouchSession(ctx, SessionInfo{SessionID: sess, Track: "monza", Car: "v", CarID: 0, StartedAt: now, LastSeen: now})
+		b.TouchSession(ctx, SessionInfo{SessionID: sess, Track: "spa", Car: "v", CarID: 0, StartedAt: now, LastSeen: now})
+		b.TouchSession(ctx, SessionInfo{SessionID: "only-b", Track: "spa", StartedAt: now, LastSeen: now})
+		la, _ := a.Sessions(ctx)
+		lb, _ := b.Sessions(ctx)
+		if len(la) != 1 || la[0].Track != "monza" || la[0].Laps != 1 || la[0].Stops != 1 {
+			t.Fatalf("a=%+v", la)
+		}
+		if len(lb) != 2 {
+			t.Fatalf("b=%+v", lb)
+		}
+		for _, s := range lb {
+			if s.SessionID == sess && (s.Track != "spa" || s.Laps != 2) {
+				t.Fatalf("b=%+v", lb)
+			}
+		}
+	})
+
+	t.Run("params, stint plan, overrides and pit setups are per team", func(t *testing.T) {
+		a.SetParams(ctx, Params{Track: "monza", Car: "v", Reserve: 2})
+		b.SetParams(ctx, Params{Track: "monza", Car: "v", Reserve: 5})
+		pa, _, _ := a.GetParams(ctx, "monza", "v")
+		pb, _, _ := b.GetParams(ctx, "monza", "v")
+		if pa.Reserve != 2 || pb.Reserve != 5 {
+			t.Fatalf("params a=%+v b=%+v", pa, pb)
+		}
+		b.SetParams(ctx, Params{Track: "spa", Car: "v"})
+		if l, _ := a.ListParams(ctx); len(l) != 1 {
+			t.Fatalf("list params a=%+v", l)
+		}
+
+		a.SetStintPlan(ctx, []PlanRow{{"x", 3600}})
+		b.SetStintPlan(ctx, []PlanRow{{"y", 1800}, {"z", 1800}})
+		ra, _ := a.GetStintPlan(ctx)
+		rb, _ := b.GetStintPlan(ctx)
+		if len(ra) != 1 || ra[0].Driver != "x" || len(rb) != 2 {
+			t.Fatalf("plan a=%+v b=%+v", ra, rb)
+		}
+		a.SetStintPlan(ctx, nil) // replacing the plan of a must not clear b
+		if rb, _ = b.GetStintPlan(ctx); len(rb) != 2 {
+			t.Fatalf("plan of b after clearing a: %+v", rb)
+		}
+
+		a.SetOverride(ctx, OverrideFuel, 10)
+		b.SetOverride(ctx, OverrideFuel, 20)
+		oa, _ := a.GetOverrides(ctx)
+		ob, _ := b.GetOverrides(ctx)
+		if oa[OverrideFuel].Value != 10 || ob[OverrideFuel].Value != 20 {
+			t.Fatalf("overrides a=%+v b=%+v", oa, ob)
+		}
+		a.DeleteOverride(ctx, OverrideFuel)
+		if ob, _ = b.GetOverrides(ctx); len(ob) != 1 {
+			t.Fatalf("override of b after deleting a's: %+v", ob)
+		}
+
+		a.SavePitSetup(ctx, PitSetup{Car: "v", Name: "Max", Steps: []wire.Step{{Category: "FUEL:", Choice: "max"}}})
+		b.SavePitSetup(ctx, PitSetup{Car: "v", Name: "Max", Steps: []wire.Step{{Category: "FUEL:", Choice: "half"}}})
+		sa, _ := a.PitSetups(ctx, "v")
+		sb, _ := b.PitSetups(ctx, "v")
+		if len(sa) != 1 || sa[0].Steps[0].Choice != "max" || len(sb) != 1 || sb[0].Steps[0].Choice != "half" {
+			t.Fatalf("setups a=%+v b=%+v", sa, sb)
+		}
+		a.DeletePitSetup(ctx, "v", "Max")
+		if sb, _ = b.PitSetups(ctx, "v"); len(sb) != 1 {
+			t.Fatalf("setup of b after deleting a's: %+v", sb)
+		}
+	})
+
+	t.Run("track data is shared", func(t *testing.T) {
+		a.SaveTrackMap(ctx, trackmap.Map{Track: "shared-ring", Length: 1000, Points: [][2]float64{{1, 2}, {3, 4}}})
+		if _, ok, _ := b.GetTrackMap(ctx, "shared-ring"); !ok {
+			t.Fatal("outline not visible to the other team")
+		}
+		b.SaveCorners(ctx, "shared-ring", []Corner{{Name: "T1"}})
+		if c, _ := a.GetCorners(ctx, "shared-ring"); len(c) != 1 {
+			t.Fatalf("corners %+v", c)
+		}
+		a.SavePitLane(ctx, pitlane.Lane{Track: "shared-ring"})
+		if _, ok, _ := b.GetPitLane(ctx, "shared-ring"); !ok {
+			t.Fatal("pit lane not visible to the other team")
+		}
+	})
+
+	t.Run("members, agents list and audit log", func(t *testing.T) {
+		if err := db.SetMember(ctx, Member{Email: "m@example.com", TeamID: first.ID, IsAdmin: true}); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.SetMember(ctx, Member{Email: "m@example.com", TeamID: other.ID}); err != nil { // moves, stays one row
+			t.Fatal(err)
+		}
+		m, ok, err := db.MemberByEmail(ctx, "m@example.com")
+		if err != nil || !ok || m.TeamID != other.ID || m.Team != "other" || m.IsAdmin {
+			t.Fatalf("member %+v %v %v", m, ok, err)
+		}
+		if err := db.SetMember(ctx, Member{Email: "x@example.com", TeamID: 99999}); err != ErrNoTeam {
+			t.Fatalf("unknown team: %v", err)
+		}
+		if all, _ := db.Members(ctx); len(all) != 1 {
+			t.Fatalf("members %+v", all)
+		}
+		db.DeleteMember(ctx, "m@example.com")
+		if _, ok, _ := db.MemberByEmail(ctx, "m@example.com"); ok {
+			t.Fatal("not deleted")
+		}
+		if _, err := db.CreateAgent(ctx, "x", 99999, HashToken("t-unknown-team")); err != ErrNoTeam {
+			t.Fatalf("agent of an unknown team: %v", err)
+		}
+		if ts, _ := db.Teams(ctx); len(ts) < 3 || ts[0].Name != DefaultTeamName {
+			t.Fatalf("teams %+v", ts)
+		}
+		base := time.Now().Add(-time.Hour)
+		db.AddAudit(ctx, AuditEntry{TS: base, Email: "a@example.com", Team: "first", Method: "PUT", Path: "/p1"})
+		db.AddAudit(ctx, AuditEntry{TS: base.Add(time.Second), Email: "b@example.com", Team: "other", Method: "DELETE", Path: "/p2"})
+		es, _ := db.Audit(ctx, 1)
+		if len(es) != 1 || es[0].Path != "/p2" || es[0].Email != "b@example.com" || es[0].Team != "other" || es[0].Method != "DELETE" {
+			t.Fatalf("audit %+v", es)
+		}
+	})
+
+	t.Run("agent tokens", func(t *testing.T) {
+		h := HashToken("secret-one")
+		ag, err := db.CreateAgent(ctx, "driver", other.ID, h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.CreateAgent(ctx, "again", def.ID, h); err != ErrExists {
+			t.Fatalf("duplicate hash: %v", err)
+		}
+		got, ok, err := db.AgentByTokenHash(ctx, HashToken("secret-one"))
+		if err != nil || !ok || got.ID != ag.ID || got.TeamID != other.ID || got.Revoked || got.LastSeen != nil {
+			t.Fatalf("lookup %+v %v %v", got, ok, err)
+		}
+		if _, ok, _ := db.AgentByTokenHash(ctx, HashToken("secret-two")); ok {
+			t.Fatal("unknown token found")
+		}
+		if err := db.TouchAgent(ctx, ag.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.RevokeAgent(ctx, ag.ID); err != nil {
+			t.Fatal(err)
+		}
+		got, _, _ = db.AgentByTokenHash(ctx, h)
+		if !got.Revoked || got.LastSeen == nil {
+			t.Fatalf("after revoke %+v", got)
+		}
+		list, _ := db.Agents(ctx)
+		found := false
+		for _, a := range list {
+			found = found || (a.ID == ag.ID && a.Revoked)
+		}
+		if !found {
+			t.Fatalf("agents %+v", list)
+		}
+	})
+}

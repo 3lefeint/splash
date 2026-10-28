@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { bar, mean, pressureHint, rangeFor, tempColor, windowOf } from '../lib/conditions';
+  import { bar, mean, rangeFor, tempColor, windowOf } from '../lib/conditions';
   import { fixed } from '../lib/format';
   import { wearColor } from '../lib/wear';
   import { settings, t } from '../lib/settings.svelte';
@@ -25,12 +25,10 @@
         pressure: y?.pressure?.[i] ?? null,
         left: car?.wear?.[i] ?? null,
         wear: car?.wear?.[i] == null ? null : (settings.wearInverted ? 1 - car.wear[i] : car.wear[i]) * 100,
-        hint: tread ? pressureHint(tread) : null,
         window: windowOf(ranges[i < 2 ? 0 : 1].low, ranges[i < 2 ? 0 : 1].high),
       };
     }),
   );
-  const compound = $derived([y?.compound_front, y?.compound_rear].filter(Boolean).join(' / '));
 
   // Top view with the nose up. Each tyre is three stripes (left, centre, right of the tread, seen from the driver)
   // in the colour of its temperature.
@@ -42,13 +40,6 @@
     { x: 8, y: 166 }, // RL
     { x: 158, y: 166 }, // RR
   ];
-  const hints = $derived(wheels.filter((w) => w.hint && w.hint !== 'ok'));
-  const rangeText = $derived.by(() => {
-    const text = (r: (typeof ranges)[number]) => t('tyres.range', { name: r.name ?? '', low: r.low, high: r.high }).replace('  ', ' ');
-    return ranges[0].low === ranges[1].low && ranges[0].high === ranges[1].high && ranges[0].name === ranges[1].name
-      ? [text(ranges[0])]
-      : [`${t('tyres.front')} ${text(ranges[0])}`, `${t('tyres.rear')} ${text(ranges[1])}`];
-  });
 </script>
 
 {#if !y}
@@ -84,23 +75,12 @@
         </g>
       {/each}
     </svg>
-    <div class="info small">
-      {#each rangeText as r}<span>{r}</span>{/each}
-      {#each hints as w (w.name)}
-        <span class={w.hint === 'high' ? 'warn' : 'accent'}>{w.name}: {t(w.hint === 'high' ? 'tyres.high' : 'tyres.low')}</span>
-      {/each}
-      {#if compound}<span class="muted">{compound}</span>{/if}
-      {#if y.brake}<span class="muted">{t('tyres.brakes')} {y.brake.map((b) => fixed(b, 0)).join(' / ')} °C</span>{/if}
-      {#if y.water != null}<span class="muted">{t('tyres.water')} {fixed(y.water, 0)} °C</span>{/if}
-      {#if y.oil != null}<span class="muted">{t('tyres.oil')} {fixed(y.oil, 0)} °C</span>{/if}
-    </div>
   </div>
 {/if}
 
 <style>
-  .wrap { display: flex; gap: 16px; align-items: center; height: 100%; min-height: 0; }
-  .car { height: 100%; width: auto; max-width: 55%; flex: 0 1 auto; min-height: 0; display: block; }
-  .info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .wrap { display: flex; justify-content: center; align-items: center; height: 100%; min-height: 0; }
+  .car { height: 100%; width: auto; max-width: 100%; flex: 0 1 auto; min-height: 0; display: block; }
   .body { fill: var(--surface-2); stroke: var(--border); stroke-width: 1.5; }
   .cabin { fill: var(--bg); opacity: 0.6; }
   .nose { stroke: var(--muted); stroke-width: 3; stroke-linecap: round; }
@@ -108,11 +88,8 @@
   .track { fill: var(--border); }
   .nodata { fill: var(--border); }
   text { text-anchor: middle; font-variant-numeric: tabular-nums; }
-  .avg { font-size: 18px; font-weight: 700; fill: #fff; paint-order: stroke; stroke: rgb(0 0 0 / 0.55); stroke-width: 3px; }
-  .deg { font-size: 11px; }
-  .sub { font-size: 9px; fill: #fff; paint-order: stroke; stroke: rgb(0 0 0 / 0.55); stroke-width: 2.5px; }
-  .name { font-size: 10px; fill: var(--muted); }
-  .warn { color: var(--warn, #e5a50a); font-weight: 600; }
-  .accent { color: var(--accent); font-weight: 600; }
-  .small { font-size: 0.8rem; }
+  .avg { font-size: 20px; font-weight: 700; fill: #fff; paint-order: stroke; stroke: rgb(0 0 0 / 0.55); stroke-width: 3px; }
+  .deg { font-size: 12px; }
+  .sub { font-size: 10px; fill: #fff; paint-order: stroke; stroke: rgb(0 0 0 / 0.55); stroke-width: 2.5px; }
+  .name { font-size: 11px; fill: var(--muted); }
 </style>

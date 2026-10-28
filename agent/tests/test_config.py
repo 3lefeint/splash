@@ -40,3 +40,17 @@ def test_invalid(tmp_path, text, msg):
 def test_missing_file(tmp_path):
     with pytest.raises(ConfigError, match="not found"):
         load(tmp_path / "nope.toml")
+
+
+def test_access_service_token_is_optional_and_kept_out_of_repr(tmp_path):
+    c = load(write(tmp_path, VALID))
+    assert (c.cf_client_id, c.cf_client_secret) == ("", "")
+    c = load(write(tmp_path, VALID.replace('token = "t"', 'token = "t"\ncf_client_id = "id.access"\ncf_client_secret = "cf-secret-value"')))
+    assert (c.cf_client_id, c.cf_client_secret) == ("id.access", "cf-secret-value")
+    assert "cf-secret-value" not in repr(c) and "cf-secret-value" not in str(c)
+
+
+@pytest.mark.parametrize("line", ['cf_client_id = "id.access"', 'cf_client_secret = "x"'])
+def test_access_service_token_needs_both_values(tmp_path, line):
+    with pytest.raises(ConfigError, match="together"):
+        load(write(tmp_path, VALID.replace('token = "t"', 'token = "t"\n' + line)))

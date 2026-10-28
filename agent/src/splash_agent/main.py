@@ -6,11 +6,14 @@ import logging
 import sys
 import time
 from typing import Callable
+from urllib.parse import urlsplit
 
+from . import __version__, logsetup
 from . import convert as cv
 from . import pitmenu, reader, structs as S
 from .config import Config, ConfigError, load
 from .link import Link
+from .logsetup import parse_level
 from .raw import RawWriter
 from .session import SessionNames
 from .spool import Spool
@@ -19,6 +22,7 @@ from .tracker import PlayerSample, Tracker
 log = logging.getLogger("splash_agent")
 
 STATUS_EVERY = 30.0  # seconds between status lines
+SPOOL_WARN = 500  # unacknowledged messages that count as a backlog worth a warning
 PAUSED_AFTER = 3.0  # seconds without game time progress after which the game counts as paused
 PIT_INFO_RETRY = 10.0  # seconds between attempts to open the optional pit menu buffer
 
@@ -39,7 +43,7 @@ class Agent:
         self.spool = Spool(cfg.spool_dir, cfg.agent_id, cfg.role)
         self.names = SessionNames(cfg.spool_dir)
         self.tracker = Tracker()
-        self.link_factory = link_factory or (lambda spool: Link(cfg.url, cfg.token, spool))
+        self.link_factory = link_factory or (lambda spool: Link(cfg.url, cfg.token, spool, cfg.cf_client_id, cfg.cf_client_secret))
         self.link = None
         self._link_task: asyncio.Task | None = None
         self._player: tuple[int, str, float] | None = None  # slot id, vehicle name, lap distance
@@ -47,6 +51,9 @@ class Agent:
         self._record = open(cfg.record_file, "a", encoding="utf-8") if cfg.record_file else None
         self._raw = RawWriter(cfg.raw_file) if cfg.raw_file else None
         self.frames = {"scoring": 0, "telemetry": 0}
+        self._failed_reads = 0  # snapshots that could not be read consistently since the last status line
+        self._rate_mark = (time.monotonic(), 0, 0)
+        self._pit_info_missing_logged = False
         self._last_et = None
         self._last_et_change = time.monotonic()
 
@@ -55,6 +62,7 @@ class Agent:
     def poll_scoring(self) -> None:
         buf = self.scoring.read()
         if buf is None:
+            self._failed_reads += 1
             return
         info = buf.mScoringInfo
         n = min(info.mNumVehicles, S.MAX_MAPPED_VEHICLES)
@@ -67,6 +75,7 @@ class Agent:
             self._new_session(sid)
         self._vehicles = n
         if self._raw is not None:
+            log.debug("raw scoring buffer: %d vehicles, %d bytes", n, len(bytes(buf)))
             self._raw.write("s", buf, reader.scoring_prefix(n))
         vehicles = [buf.mVehicles[i] for i in range(n)]
 
@@ -79,7 +88,8 @@ class Agent:
             self.tracker.set_player(None)
 
         for d in self.tracker.on_scoring(info, vehicles):
-            _, line = self.spool.append(d.type, d.et, d.payload)
+            seq, line = self.spool.append(d.type, d.et, d.payload)
+            log.debug("spool: %s seq %d, %d pending", d.type, seq, len(self.spool.entries))
             self._write_record(line)
         self.link.notify()
         self.frames["scoring"] += 1
@@ -106,8 +116,10 @@ class Agent:
         car_id, name, lap_dist = self._player
         buf = self.telemetry.read(prefix=reader.telemetry_prefix(max(self._vehicles, 1)))
         if buf is None:
+            self._failed_reads += 1
             return
         if self._raw is not None:
+            log.debug("raw telemetry buffer: %d vehicles, %d bytes", buf.mNumVehicles, len(bytes(buf)))
             self._raw.write("t", buf, reader.telemetry_prefix(max(self._vehicles, 1)))
         n = min(buf.mNumVehicles, S.MAX_MAPPED_VEHICLES)
         t = next((buf.mVehicles[i] for i in range(n) if buf.mVehicles[i].mID == car_id), None)
@@ -128,7 +140,7 @@ class Agent:
     # -- session and output ----------------------------------------------
 
     def _new_session(self, sid: str) -> None:
-        log.info("session %s", sid)
+        log.info("session changed: %s (was %s)", sid, self.spool.session_id or "none")
         self._stop_link()
         self.tracker.reset()
         self.spool.open(sid)
@@ -253,6 +265,21 @@ class Agent:
             text += f", game time not moving for {idle:.0f} s (paused, in a menu or the game closed)"
         return text
 
+    def _status_checks(self, now: float) -> None:
+        """What the status line implies: warnings for problems that fixed themselves or may grow, and the sample rates."""
+        if self._failed_reads:
+            log.warning("%d snapshots of the plugin buffers could not be read consistently in the last %.0f s",
+                        self._failed_reads, STATUS_EVERY)
+            self._failed_reads = 0
+        if len(self.spool.entries) >= SPOOL_WARN:
+            log.warning("%d messages are waiting for the backend to acknowledge them (spool grows while it is away)",
+                        len(self.spool.entries))
+        t0, s0, t1 = self._rate_mark
+        dt = max(now - t0, 1e-6)
+        log.debug("samples per second: scoring %.1f, telemetry %.1f", (self.frames["scoring"] - s0) / dt,
+                  (self.frames["telemetry"] - t1) / dt)
+        self._rate_mark = (now, self.frames["scoring"], self.frames["telemetry"])
+
     async def run(self) -> None:
         scoring_every, telemetry_every = 1 / self.cfg.scoring_hz, 1 / self.cfg.telemetry_hz
         next_scoring = next_telemetry = next_status = next_pit_info = time.monotonic()
@@ -260,6 +287,7 @@ class Agent:
             now = time.monotonic()
             if now >= next_status:
                 log.info("status: %s", self.status())
+                self._status_checks(now)
                 next_status = now + STATUS_EVERY
             if self.pit_info is None and self._open_pit_info is not None and now >= next_pit_info:
                 next_pit_info = now + PIT_INFO_RETRY
@@ -267,7 +295,10 @@ class Agent:
                     self.pit_info = self._open_pit_info()
                     log.info("pit menu buffer opened")
                 except reader.PluginNotRunning:
-                    pass  # older plugin or buffer unsubscribed: the dashboard just shows no pit menu
+                    # older plugin or buffer unsubscribed: the dashboard just shows no pit menu
+                    if not self._pit_info_missing_logged:
+                        self._pit_info_missing_logged = True
+                        log.info("pit menu buffer not available, trying again every %.0f s", PIT_INFO_RETRY)
             if now >= next_scoring:
                 self.poll_scoring()
                 next_scoring = max(next_scoring + scoring_every, now)
@@ -284,8 +315,10 @@ def _open_buffers() -> tuple[reader.MappedBuffer, reader.MappedBuffer]:
     waiting = False
     while True:
         try:
-            return (reader.open_windows_buffer(S.ScoringBuffer, S.SCORING_FILE),
-                    reader.open_windows_buffer(S.TelemetryBuffer, S.TELEMETRY_FILE))
+            buffers = (reader.open_windows_buffer(S.ScoringBuffer, S.SCORING_FILE),
+                       reader.open_windows_buffer(S.TelemetryBuffer, S.TELEMETRY_FILE))
+            log.info("plugin buffers found" + (" (after waiting)" if waiting else ""))
+            return buffers
         except reader.PluginNotRunning as e:
             if sys.platform != "win32":
                 raise SystemExit(f"error: {e}") from e
@@ -295,8 +328,17 @@ def _open_buffers() -> tuple[reader.MappedBuffer, reader.MappedBuffer]:
             time.sleep(2)
 
 
+def _server_summary(url: str) -> str:
+    """Host and port of the backend; the path, the query and any credentials in the URL stay out of the log."""
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.hostname or '?'}" + (f":{parts.port}" if parts.port else "")
+
+
 def cmd_run(args) -> int:
     cfg = load(args.config)
+    log.info("splash-agent %s starting: server=%s agent=%s role=%s cloudflare_client_id=%s log_level=%s spool=%s",
+             __version__, _server_summary(cfg.url), cfg.agent_id, cfg.role, "set" if cfg.cf_client_id else "not set",
+             cfg.log_level.upper(), cfg.spool_dir)
     scoring, telemetry = _open_buffers()
     agent = Agent(cfg, scoring, telemetry,
                   open_pit_info=lambda: reader.open_windows_buffer(S.PitInfoBuffer, S.PIT_INFO_FILE))
@@ -310,7 +352,8 @@ def cmd_run(args) -> int:
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        pass
+        log.info("shutting down (interrupted)")
+    log.info("stopped")
     return 0
 
 
@@ -361,15 +404,30 @@ def cmd_replay_raw(args) -> int:
     return 0
 
 
+def _levels(args) -> tuple[int, Config | None]:
+    """The log level: the command line wins over log.level in the config file, the default is INFO."""
+    cfg = None
+    if getattr(args, "config", None):
+        try:
+            cfg = load(args.config)
+        except ConfigError:
+            cfg = None  # the command reports it itself, after the logging is up
+    name = getattr(args, "log_level", None) or (cfg.log_level if cfg else "INFO")
+    return parse_level(name), cfg
+
+
 def cli(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="splash-agent")
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--log-level", default=argparse.SUPPRESS, metavar="LEVEL",
+                        help="DEBUG, INFO, WARNING or ERROR (default: log.level of the config file, else INFO)")
+    ap = argparse.ArgumentParser(prog="splash-agent", parents=[common])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    run = sub.add_parser("run", help="stream the shared memory data to the backend")
+    run = sub.add_parser("run", parents=[common], help="stream the shared memory data to the backend")
     run.add_argument("--config", default="agent.toml")
     run.set_defaults(fn=cmd_run)
-    probe = sub.add_parser("probe", help="print the telemetry of all vehicles once")
+    probe = sub.add_parser("probe", parents=[common], help="print the telemetry of all vehicles once")
     probe.set_defaults(fn=cmd_probe)
-    sim = sub.add_parser("simulate", help="play a made-up race against a backend, no game needed")
+    sim = sub.add_parser("simulate", parents=[common], help="play a made-up race against a backend, no game needed")
     sim.add_argument("--url", default="ws://localhost:8080/v1/agent/ws")
     sim.add_argument("--token", default="dev")
     sim.add_argument("--minutes", type=float, default=120, help="length of the race in game minutes")
@@ -378,18 +436,28 @@ def cli(argv: list[str] | None = None) -> int:
     sim.add_argument("--seed", type=int, default=1)
     sim.add_argument("--track-file", help="JSON with the outline (and corners) of a real track to play on instead of the invented one")
     sim.set_defaults(fn=cmd_simulate)
-    rr = sub.add_parser("replay-raw", help="run a raw capture (agent.raw_file) through the agent offline")
+    rr = sub.add_parser("replay-raw", parents=[common], help="run a raw capture (agent.raw_file) through the agent offline")
     rr.add_argument("file")
     rr.add_argument("--config", default="agent.toml")
     rr.add_argument("--out", default="replay-out.ndjson")
     rr.set_defaults(fn=cmd_replay_raw)
     args = ap.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    try:
+        level, cfg = _levels(args)
+    except ValueError as e:
+        print(f"config error: {e}", file=sys.stderr)
+        return 2
+    logsetup.setup(level)
+    if cfg is not None:
+        logsetup.register_secrets(cfg.token, cfg.cf_client_secret)
     try:
         return args.fn(args)
     except ConfigError as e:
         print(f"config error: {e}", file=sys.stderr)
         return 2
+    except Exception:
+        log.error("unrecoverable failure, the agent stops", exc_info=True)
+        return 1
 
 
 if __name__ == "__main__":

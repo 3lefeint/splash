@@ -18,7 +18,7 @@
 - Live samples are no longer sequenced; pit entries of the same car within 30 s count as one stop
 - Web frontend: overview, stint plan, settings and rest view with SSE updates, offline cache and CSV export
 - Backend serves the built frontend
-- Dockerfile, Kustomize base with test and prod overlays (one namespace, Ingress class `nginx`), GitHub Actions CI with image push and Windows agent build
+- Dockerfile, Kustomize base with staging and prod overlays (one namespace, Ingress class `nginx`), GitHub Actions CI with image push and Windows agent build
 - Agent option `raw_file` and `replay-raw` command to run a captured session through the agent offline
 - `scripts/dev.sh` runs frontend and backend from source; development loop documented
 - Track map: the backend records the outline from the first clean lap, the agent sends car positions, the overview and a map page show all cars with switches for opponents, classes and single cars
@@ -26,16 +26,16 @@
 - Overview tiles can be moved and resized on a 12 column grid (edit mode, saved in the browser); phones keep one column
 - Agent logs a status line every 30 s (session, cars, frames, backend connection, game time standing still)
 - Tyre temperatures (tread, inner layer, pressure, brakes, engine) and weather with a history of track and air temperature as overview tiles
-- Pit stops: measured time in the pit lane, standing in the box, until the work was done and fuel flow, with suggested parameters that can be applied in one click
-- Pit menu: the agent reads the selected row of the game pit menu (fuel, tyres, ...) and the pit stops tile shows it
+- Pit stops: measured time in the pit lane, standing in the box, until the work was done and fuel flow, with suggested parameters that can be applied in one click (refuel rate, driver change and the pit lane loss against racing past, shown per stop as gross, race pace part and net, or the reason why there is no net value; no tyre change suggestion); the tyre change counts 17 s unless a value is stored per track and car; the service always runs in sequence (tyres, then fuel, plus the driver change), there is no parallel service setting
+- Pit menu: the agent reads the selected row of the game pit menu (fuel, tyres, ...); the pit setups use it
 - Pit setups: named lists of pit menu rows (max fuel, medium tyres, ...) that a button sends to the game of the driver through the plugin
 - Track map: while the outline is recorded the map shows the lap driven so far and how much of it is covered
-- Tyre temperatures tile shows the car from above, nose up, with the tread of each tyre coloured by temperature; the working range is set per compound name in the options
+- Tyre temperatures tile shows the car from above, nose up, with the tread of each tyre coloured by temperature; the working range is set per compound name in the options; the text inside the tyres is larger and no text is shown beside the car
 - Explanatory texts of the tiles are shown in a popup behind an "i" button in the top right corner of the tile
 - Sessions are stored with start, track, car and, per lap of the driven car, weather, tyre and engine temperatures and who drove (player or AI); a sessions page lists them with CSV exports of laps, stops and conditions
 - The driver tile shows when the AI drives the car
 - Rivals tile: gap, pace difference, stint, fuel and forecast stop of every car, where we would rejoin after a stop now and the best lap to stop; every car carries its fuel and tyre wear in the scoring message
-- Lap time model: fuel effect and tyre degradation fitted from the clean laps, applicable as parameters
+- Lap time model: fuel effect and tyre degradation fitted from the clean laps, applicable as parameters; minimum clean laps, slow limit and the exclusion of full course yellow and wet laps are settings per track and car, and while there are too few laps the panel lists the excluded laps with their reasons
 - Notes tile: wet track on dry tyres, rising rain, full course yellow, tyre temperatures against the ranges, rivals that stop soon and a better moment to stop
 - Stint plan: stints behind the finish are cut and the needed ones are scaled; the next two stay in the list greyed out as reserve
 - Weather history is stored per session, so a restart of the backend no longer loses it
@@ -46,7 +46,7 @@
 - Advice on wet tyres: prepare, switch now, or slicks possible again, from track wetness and rain
 - Rivals show the most worn tyre; the scoring message carries the wear of every tyre of every car and the penalties
 - Track map: time gained or lost against the car ahead, the car behind or our best lap in each of 50 sections, from the section times of every car
-- Track map: fuel use, speed and braking along the lap, the pit lane with its boxes, where we would rejoin after a stop with the cars that would pass us, cars coloured by their pace against ours and cars off the track
+- Track map: fuel use, speed and braking along the lap, the pit lane with its boxes, where we would rejoin after a stop with the cars that would pass us (the marker sits where we would be among the cars: our lap distance minus what the time lost covers at race pace), cars coloured by their pace against ours and cars off the track
 - The agent sends the brake pedal, the lateral position and the track edge
 - Race simulator (`splash-agent simulate`, `scripts/simulate.sh`) that plays an invented endurance race with pit stops, rain, yellow flags, penalties and damage into a backend; with `SIM_TRACK` it drives on the outline and corners of a track known to another backend
 - The lap time model leaves out laps on a wet track and warns when it fits the laps poorly
@@ -56,9 +56,28 @@
 - Overview tiles can be hidden in the layout editor and shown again from a list below the grid; the driver tile no longer shows tyre wear
 - Tracks page for the known tracks: mark each corner on the map from where it starts to where it ends, shown as a coloured stretch with a name that can be dragged and a line that docks at the nearest points of name and stretch, with no session needed; the map page shows the corners and an overview tile shows the corner the car is in
 - Tracks page: the corner list is ordered by position on the track; zoom and move the map with the mouse wheel, buttons and dragging, and change the width of the columns by dragging the bars between them
+- Browser identity from the Cloudflare Access token (`SPLASH_ACCESS_TEAM_DOMAIN`, `SPLASH_ACCESS_AUDIENCE`): signature, issuer, audience and expiry are checked, the e-mail address maps to a team through `team_members`, unknown addresses get 403; without the variables authentication is off (the prod deployment requires them, staging and dev do not)
+- Administration page and API for teams, members and agents; an agent token is shown once and only its hash is stored; first administrators from `SPLASH_ADMIN_EMAILS`
+- Agent socket: when the Access variables are set, a handshake needs a valid `Cf-Access-Jwt-Assertion` (no e-mail required) in addition to the Splash token; the agent can send `CF-Access-Client-Id` and `CF-Access-Client-Secret` (`server.cf_client_id`, `server.cf_client_secret`)
+- Reconnects: the SSE stream sends a configurable keep-alive (`SPLASH_SSE_HEARTBEAT_SECONDS`), the server closes agent connections that do not answer pings (`SPLASH_WS_PING_SECONDS`, `SPLASH_WS_DEAD_AFTER_SECONDS`), the page reconnects with backoff and jitter, shows the last state as reconnecting and asks for a new login when the session has expired
+- Logging: the backend writes structured lines by level (`SPLASH_LOG_LEVEL`, `SPLASH_DB_SLOW_MS`): start summary, agent connections, sessions, failed logins, admin actions, rate limit hits, slow and failed database calls, failed requests and recovered panics, debug lines for requests, frames and token checks; the agent logs to the console with a level from `log.level` or `--log-level`, and the `websockets` library can no longer print handshake headers; no secrets, tokens or e-mail addresses are logged
+- Yellow flags: the sector flag only says there is a yellow; cars almost standing still in a flagged sector (not in the pits) are marked as probable causes on the map and in the rivals list, and an alert line shows the nearest one ahead with distance and corner ("Yellow in 340 m, before <corner>") or "Yellow, cause unknown"; two independent settings for the alert line and the markers; the agent adds the sector of the cars to the scoring message (the backend must be updated first)
+- Audit log of all write requests (time, e-mail, team, method, path)
+- Rate limits per identity on write requests, SSE streams and agent connections (`SPLASH_RATE_WRITES_PER_MIN`, `SPLASH_RATE_CONNECTS_PER_MIN`), answered with 429 and `Retry-After`
+
+### Changed
+
+- Teams: parameters, stint plan, overrides, pit setups and sessions with their laps, stops and weather are kept per team; live state, engine, command hub and SSE stream run per team; track data is shared; existing data moves to the team `default`
+- Agent tokens are looked up by hash in the table `agents` and decide the team; `SPLASH_AGENT_TOKEN` stays as a fallback for the team `default` (with the Access variables set, only when it is non-empty and matches)
+- Migrations no longer run at backend start; `splash migrate` applies them, deployed as an init container with its own database secret
+- The backend connects with a pool of 10 connections, configurable with `SPLASH_DB_MAX_CONNS`
+- The environments are called `splash` (prod) and `splash-stg` (staging): overlay `deploy/overlays/stg`, suffix `-stg`, Secrets `splash-stg-*`, database `splash_stg`
+- Prod and staging ingresses use the class `public`; the staging environment has no LAN host
 
 ### Fixed
 
+- The page no longer crashes for a team without data or with a single car: lists in the state are sent as `[]` instead of `null` (rivals, rival tyre wear, rejoin lists, weather history, stint plan entries, pit lane boxes) and the page treats a missing list as empty
+- Agent keeps reconnecting after a connection that was cut before the HTTP answer, and starts its reconnect pause over after a connection that worked; the pause carries jitter
 - Agent marks laps as full course yellow only for game phase 6 or yellow flag states 1 to 3, not for sector flags
 - Agent no longer creates an empty shared memory area when it starts before the game; it opens the plugin buffers read-only and waits
 - Agent detects a tyre change from a rise of the wear value, also for slightly worn tyres

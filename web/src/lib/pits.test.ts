@@ -4,15 +4,14 @@ import type { Params, PitSuggest } from './types';
 
 const params: Params = {
   track: 't', car: 'c', pit_through_green: 30, pit_through_fcy: 20, refuel_rate: 2, tyre_change: 25, driver_swap: 15,
-  parallel_service: false, fuel_effect: 0, deg_per_lap: 0, save_cost: 0, reserve: 3,
+  fuel_effect: 0, deg_per_lap: 0, save_cost: 0, reserve: 3,
 };
-const none: PitSuggest = { pit_through: null, refuel_rate: null, tyre_change: null, driver_swap: null, parallel_service: null };
+const none: PitSuggest = { pit_through: null, refuel_rate: null, driver_swap: null };
 
 describe('applySuggestion', () => {
   it('replaces only the suggested values', () => {
-    const p = applySuggestion(params, { ...none, pit_through: 41.5, parallel_service: true });
+    const p = applySuggestion(params, { ...none, pit_through: 41.5 });
     expect(p.pit_through_green).toBe(41.5);
-    expect(p.parallel_service).toBe(true);
     expect(p.refuel_rate).toBe(2);
     expect(p.pit_through_fcy).toBe(20);
   });

@@ -19,6 +19,28 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # Applies the database migrations as the owner role; the app itself only gets the restricted role.
+        - name: migrate
+          image: ghcr.io/3lefeint/splash
+          args: [migrate]
+          env:
+            - name: SPLASH_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: splash-migrate
+                  key: url
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
       containers:
         - name: splash
           image: ghcr.io/3lefeint/splash
@@ -36,6 +58,26 @@ spec:
                 secretKeyRef:
                   name: splash-agent
                   key: token
+            # Browser authentication and the first administrators. Optional here so staging and dev start without the secret;
+            # the prod overlay makes the team domain and the audience required. See deploy/README.md.
+            - name: SPLASH_ACCESS_TEAM_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: splash-access
+                  key: team-domain
+                  optional: true
+            - name: SPLASH_ACCESS_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: splash-access
+                  key: audience
+                  optional: true
+            - name: SPLASH_ADMIN_EMAILS
+              valueFrom:
+                secretKeyRef:
+                  name: splash-access
+                  key: admin-emails
+                  optional: true
           readinessProbe:
             httpGet:
               path: /healthz

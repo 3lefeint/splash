@@ -41,21 +41,24 @@ type State struct {
 	StintPlan *Plan     `json:"stint_plan,omitempty"`
 	Opponents Opponents `json:"opponents"`
 	// TrackLength and Field place every car on the track map.
-	TrackLength float64                   `json:"track_length,omitempty"`
-	Field       []FieldCar                `json:"field,omitempty"`
-	Wear        *WearStats                `json:"wear_stats,omitempty"`
-	Tyres       *Tyres                    `json:"tyres,omitempty"`
-	PitMenu     *wire.PitMenu             `json:"pit_menu,omitempty"`
-	Command     *commands.Status          `json:"command,omitempty"`
-	Strategy    *Strategy                 `json:"strategy,omitempty"`
-	Fit         *Fit                      `json:"fit,omitempty"`
-	Fcy         bool                      `json:"fcy,omitempty"`
-	Agents      []commands.AgentStatus    `json:"agents,omitempty"`
-	Sections    *TrackStats               `json:"sections,omitempty"`
-	Pits        *PitStats                 `json:"pits,omitempty"`
-	Weather     *Weather                  `json:"weather,omitempty"`
-	Params      store.Params              `json:"params"`
-	Overrides   map[string]store.Override `json:"overrides"`
+	TrackLength float64          `json:"track_length,omitempty"`
+	Field       []FieldCar       `json:"field,omitempty"`
+	Wear        *WearStats       `json:"wear_stats,omitempty"`
+	Tyres       *Tyres           `json:"tyres,omitempty"`
+	PitMenu     *wire.PitMenu    `json:"pit_menu,omitempty"`
+	Command     *commands.Status `json:"command,omitempty"`
+	Strategy    *Strategy        `json:"strategy,omitempty"`
+	Fit         *Fit             `json:"fit,omitempty"`
+	Fcy         bool             `json:"fcy,omitempty"`
+	// YellowSectors are the sectors (1 to 3) with a local yellow flag; the cars that probably cause it carry Cause in
+	// Field. Independent of the full course yellow in Fcy.
+	YellowSectors []int                     `json:"yellow_sectors"`
+	Agents        []commands.AgentStatus    `json:"agents,omitempty"`
+	Sections      *TrackStats               `json:"sections,omitempty"`
+	Pits          *PitStats                 `json:"pits,omitempty"`
+	Weather       *Weather                  `json:"weather,omitempty"`
+	Params        store.Params              `json:"params"`
+	Overrides     map[string]store.Override `json:"overrides"`
 }
 
 // FieldCar is the position of one car on the track.
@@ -69,6 +72,8 @@ type FieldCar struct {
 	InPits      bool    `json:"in_pits"`
 	Ours        bool    `json:"ours"`
 	OffTrack    bool    `json:"off_track,omitempty"`
+	// Cause marks a car that probably causes a local yellow: in a flagged sector, not in the pits, almost standing still.
+	Cause bool `json:"probable_cause,omitempty"`
 }
 
 type Car struct {
@@ -139,6 +144,7 @@ type Engine struct {
 	Field, Own *segments.Recorder
 	Pits       PitSource
 
+	motion  motionLog
 	mu      sync.Mutex
 	session string
 	lastLap int
@@ -155,12 +161,14 @@ func New(st store.Store, lv *live.State) *Engine {
 
 // Compute builds the current state. It is not Ready until telemetry and scoring have arrived.
 func (e *Engine) Compute(ctx context.Context) (State, error) {
+	start := time.Now()
+	defer func() { e.Log.Debug("state computed", "ms", time.Since(start).Milliseconds()) }()
 	snap := e.Live.Snapshot()
 	ov, err := e.Store.GetOverrides(ctx)
 	if err != nil {
 		return State{}, err
 	}
-	st := State{SessionID: snap.SessionID, ET: snap.ScoringET, Overrides: ov, Opponents: Opponents{}}
+	st := State{SessionID: snap.SessionID, ET: snap.ScoringET, Overrides: ov, Opponents: Opponents{}, YellowSectors: []int{}}
 	if snap.Telemetry == nil || snap.Scoring == nil {
 		return st, nil
 	}
@@ -193,6 +201,7 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 	if !ok {
 		params = store.Params{Track: sc.Track, Car: tel.VehicleName, Reserve: store.DefaultReserve}
 	}
+	params = params.WithDefaults()
 	st.Params = params
 
 	laps, err := e.Store.LapsOfCar(ctx, snap.SessionID, tel.CarID, tel.VehicleName)
@@ -204,12 +213,16 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 		return State{}, err
 	}
 	st.Wear = wearStats(laps, wears)
-	st.Fit = fitModel(laps, setBoundaries(laps), e.wetLaps(ctx, snap.SessionID, tel.CarID, tel.VehicleName, len(laps)))
+	fitOpt := fitOptions(params)
+	var wet func(int) bool
+	if fitOpt.SkipWet {
+		wet = e.wetLaps(ctx, snap.SessionID, tel.CarID, tel.VehicleName, len(laps))
+	}
+	st.Fit = fitModel(laps, setBoundaries(laps), wet, fitOpt)
 	allStops, err := e.Store.Stops(ctx, snap.SessionID)
 	if err != nil {
 		return State{}, err
 	}
-	st.Pits = pitStats(allStops, tel.CarID, tel.VehicleName)
 	model, lapTime, lastDriver := fuelModel(laps)
 	if car.Driver == "" {
 		car.Driver = lastDriver
@@ -220,6 +233,25 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 	if lapTime > 0 {
 		car.LapTime = &lapTime
 	}
+	pitCtx := PitContext{Params: params, TrackLength: sc.TrackLength, LapTime: lapTime}
+	if e.Pits != nil {
+		l := e.Pits.Lane(sc.Track)
+		switch {
+		case l == nil:
+			pitCtx.StretchMissing = "lane_unknown"
+		case l.EntryDist == nil:
+			pitCtx.StretchMissing = "entry_dist"
+		case l.ExitDist == nil:
+			pitCtx.StretchMissing = "exit_dist"
+		default:
+			if d, ok := l.Stretch(sc.TrackLength); ok {
+				pitCtx.LaneStretch = &d
+			} else {
+				pitCtx.StretchMissing = "stretch"
+			}
+		}
+	}
+	st.Pits = pitStats(allStops, tel.CarID, tel.VehicleName, pitCtx)
 
 	// Overrides replace live values until the live value matches them again.
 	if o, ok := ov[store.OverrideFuel]; ok {
@@ -275,10 +307,20 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 	}
 	st.Weather = weatherState(sc.Weather, e.weatherHistory(ctx, snap.SessionID, snap.ScoringET, sc.Weather))
 	st.Fcy = isFCY(sc)
+	yel := e.yellow(sc, tel.CarID, tel.VehicleName, snap.ScoringET)
+	st.YellowSectors = yel.Sectors
+	for i, f := range st.Field {
+		st.Field[i].Cause = yel.causes[carKey(f.VehicleName, f.CarID)]
+	}
 	st.Sections = e.trackStats(snap.SessionID, sc.Track, car, sc.TrackLength, st.Opponents)
 	st.Strategy, err = e.strategyState(ctx, snap, car, params, lapTime, st.StintPlan, st.Fcy)
 	if err != nil {
 		return State{}, err
+	}
+	if st.Strategy != nil {
+		for i, r := range st.Strategy.Rivals {
+			st.Strategy.Rivals[i].Cause = yel.causes[carKey(r.VehicleName, r.CarID)]
+		}
 	}
 	return st, nil
 }
@@ -336,16 +378,13 @@ func race(car Car, p store.Params, fpl, lapTime, et, timeLeft float64) *Race {
 	return r
 }
 
-// pitLoss is the time between two stints used for planning.
+// pitLoss is the time between two stints used for planning. The service always runs in sequence: tyres, then fuel.
 func pitLoss(p store.Params, capacity float64) float64 {
 	var refuel float64
 	if p.RefuelRate > 0 {
 		refuel = math.Max(capacity-p.Reserve, 0) / p.RefuelRate
 	}
-	other := p.TyreChange + p.DriverSwap
-	if p.ParallelService {
-		return p.PitThroughGreen + math.Max(refuel, other)
-	}
+	other := p.TyreChangeTime() + p.DriverSwap
 	return p.PitThroughGreen + refuel + other
 }
 
@@ -399,6 +438,9 @@ func (e *Engine) stintPlan(ctx context.Context, snap live.Snapshot, car Car, p s
 	res, err := strategy.Reschedule(in)
 	if err != nil && !errors.Is(err, strategy.ErrNoCurrentStint) {
 		return nil, err
+	}
+	if res.Entries == nil {
+		res.Entries = []strategy.PlanEntry{} // [] in the JSON, never null
 	}
 	return &Plan{Entries: res.Entries, Shortfall: res.Shortfall, CurrentDeviation: res.CurrentDeviation, PitLoss: in.PitLoss}, nil
 }

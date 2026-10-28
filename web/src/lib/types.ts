@@ -71,11 +71,15 @@ export interface Params {
   refuel_rate: number;
   tyre_change: number;
   driver_swap: number;
-  parallel_service: boolean;
   fuel_effect: number;
   deg_per_lap: number;
   save_cost: number;
   reserve: number;
+  /** Which laps count for the lap time model; the backend fills the defaults for sets stored without them. */
+  fit_min_laps?: number;
+  fit_slow_percent?: number;
+  fit_skip_fcy?: boolean;
+  fit_skip_wet?: boolean;
 }
 
 export interface FieldCar {
@@ -88,6 +92,7 @@ export interface FieldCar {
   in_pits: boolean;
   ours: boolean;
   off_track?: boolean;
+  probable_cause?: boolean; // in a flagged sector, not in the pits, almost standing still
 }
 
 export interface TrackMap {
@@ -147,9 +152,12 @@ export interface Rival {
   wear: number[] | null; // each tyre, 1 is new
   stop_in: number | null; // forecast laps until its stop
   stop_basis?: 'fuel' | 'assumed' | 'stint';
+  probable_cause?: boolean;
 }
 
 export interface Rejoin {
+  /** Where on the lap, in metres, we would sit among the cars after a stop now; null while it cannot be told. */
+  lap_dist?: number | null;
   loss: number;
   position: number;
   lost: number;
@@ -208,7 +216,19 @@ export interface Fit {
   base: number;
   r2: number;
   reason?: 'few_laps' | 'collinear';
+  /** Clean laps needed (a setting); absent from an older backend. */
+  min_laps?: number;
+  /** The laps that did not count and why; filled only while there are too few laps. */
+  excluded?: ExcludedLap[];
 }
+
+export interface ExcludedLap {
+  lap: number;
+  reason: 'too_slow' | 'out_lap' | 'in_lap' | 'fcy' | 'wet' | 'missing_data' | string;
+}
+
+/** The settings of the lap time model that change which laps count. */
+export type FitSetting = 'fit_min_laps' | 'fit_slow_percent' | 'fit_skip_fcy' | 'fit_skip_wet';
 
 export interface Step {
   category: string;
@@ -273,7 +293,11 @@ export interface StopRow {
   stopped: number | null; // standing in the box
   work: number | null; // until the last fuel or tyre change was done
   fuel_time: number | null;
-  through: number | null;
+  through: number | null; // pit lane time without the standing time (gross)
+  race_part: number | null; // what a car at race pace needs for the same stretch
+  net: number | null; // through - race_part: the time lost against racing past
+  /** Why there is no net value; absent from an older backend. */
+  net_missing?: string;
   fuel: number | null;
   tyres: boolean;
   swap: boolean;
@@ -282,9 +306,7 @@ export interface StopRow {
 export interface PitSuggest {
   pit_through: number | null;
   refuel_rate: number | null;
-  tyre_change: number | null;
   driver_swap: number | null;
-  parallel_service: boolean | null;
 }
 
 export interface PitStats {
@@ -313,6 +335,8 @@ export interface State {
   sections?: Sections;
   fit?: Fit;
   fcy?: boolean;
+  /** Sectors (1 to 3) with a local yellow; the cars that probably cause it carry probable_cause in field. */
+  yellow_sectors?: number[];
   weather?: Weather;
   pits?: PitStats;
   params: Params;
@@ -339,4 +363,36 @@ export interface SessionSummary {
   conditions: number;
   ai_laps: number;
   player_laps: number;
+}
+
+export interface Me {
+  email: string;
+  team_id: number;
+  team: string;
+  is_admin: boolean;
+}
+
+export interface AdminTeam {
+  id: number;
+  name: string;
+}
+
+export interface AdminMember {
+  email: string;
+  team_id: number;
+  team?: string;
+  is_admin: boolean;
+}
+
+export interface AdminAgent {
+  id: number;
+  name: string;
+  team_id: number;
+  revoked: boolean;
+  last_seen: string | null;
+}
+
+/** The reply to creating an agent; the token is shown only this once. */
+export interface CreatedAgent extends AdminAgent {
+  token: string;
 }

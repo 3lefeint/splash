@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Banner from './components/Banner.svelte';
+  import ConnectionNotice from './components/ConnectionNotice.svelte';
   import StatusChip from './components/StatusChip.svelte';
   import Dashboard from './views/Dashboard.svelte';
   import MapView from './views/MapView.svelte';
@@ -9,11 +10,14 @@
   import SessionsView from './views/SessionsView.svelte';
   import SettingsView from './views/SettingsView.svelte';
   import TracksView from './views/TracksView.svelte';
+  import AdminView from './views/AdminView.svelte';
   import { announcements } from './lib/announce';
   import { announcer } from './lib/announcer.svelte';
+  import { corners } from './lib/corners.svelte';
   import { duration } from './lib/format';
   import { dashboardLayout } from './lib/layout.svelte';
-  import { router, routes } from './lib/router.svelte';
+  import { identity } from './lib/me.svelte';
+  import { router, visibleRoutes } from './lib/router.svelte';
   import { t, settings } from './lib/settings.svelte';
   import { alerts } from './lib/strategy';
   import { live } from './lib/store';
@@ -21,16 +25,18 @@
   onMount(() => {
     router.start();
     live.start();
+    void identity.load();
     return () => live.stop();
   });
 
   const state = $derived(live.state);
+  $effect(() => corners.watch(state?.track));
   // The session as the team sees it: track and the car of the driven team.
   const title = $derived(state?.ready && state.car ? `${state.track} · ${state.car.vehicle_name}` : '');
   const timeLeft = $derived(state?.ready ? Math.max(state.time_left - (live.etNow - state.et), 0) : null);
 
   $effect(() => {
-    announcer.update(announcements(state, live.etNow, alerts(state, settings.tyreRanges, settings.tyreFallback)), !!state?.ready);
+    announcer.update(announcements(state, live.etNow, alerts(state, settings.tyreRanges, settings.tyreFallback, { yellow: settings.yellowAhead, corners: corners.list })), !!state?.ready);
   });
 
   // off -> beep -> voice -> off; the click also lets the browser play sound
@@ -57,7 +63,7 @@
       </button>
     {/if}
     <nav aria-label="Main">
-    {#each routes as r}
+    {#each visibleRoutes(identity.isAdmin) as r}
       <a href="#/{r}" class:active={router.route === r} aria-current={router.route === r ? 'page' : undefined}>
         {t(`nav.${r}` as 'nav.plan')}
       </a>
@@ -72,6 +78,7 @@
     <button class="snd" class:on={settings.soundMode !== 'off'} onclick={cycleSound} title={t('sound.title')} aria-label={t('sound.title')}>{t(`sound.${settings.soundMode}` as 'sound.off')}</button>
     <StatusChip />
   </div>
+  <ConnectionNotice />
   <Banner />
 </header>
 
@@ -88,6 +95,8 @@
     <SettingsView />
   {:else if router.route === 'tracks'}
     <TracksView />
+  {:else if router.route === 'admin'}
+    <AdminView />
   {:else}
     <RestView />
   {/if}

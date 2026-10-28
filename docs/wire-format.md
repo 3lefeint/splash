@@ -9,7 +9,7 @@ Every message carries an envelope: `v`, `type`, `agent_id`, `role`, `session_id`
 | type | sent by | content |
 |---|---|---|
 | `hello` | both | first message after (re)connect, includes `resume_from_seq` |
-| `scoring` | both | whole field: places, positions on the map, laps, pit state, weather |
+| `scoring` | both | whole field: places, positions on the map, laps, pit state, weather, flags |
 | `telemetry` | driver | fuel and tyre wear of the driven car |
 | `lap` | both | completed lap record (`laps` table); fuel and tyre fields stay empty for opponents |
 | `event` | both | pit entry/exit, driver swap, FCY start/end |
@@ -33,3 +33,13 @@ Rules:
 - Scoring buffers update at 5 Hz, telemetry at 50 Hz; the agent samples telemetry down to 5-10 Hz.
 - Game field names and scaling (for example `mWear`) must be verified against the plugin header before the schema is
   frozen (done for the fields above except the `mWear` direction and the mapped buffer names).
+
+## Yellow flags in `scoring`
+
+`sector_flags` (three raw values) and `yellow_state` are sent with every sample. A sector with a local yellow reports 1,
+a clear one 11 (seen in a capture, not documented by the plugin). Per vehicle the agent may add `sector` (1 to 3, the
+plugin's mSector 1, 2, 0), `flag` (raw mFlag, only when not 0) and `under_yellow` (raw mUnderYellow, only when true).
+`sector` is sent for the player's own car always and for every other car only while a sector flag is up, so a green
+session costs 11 bytes per message and a flagged one about 11 bytes per car. All three are optional: an older agent
+sends none of them and the backend then marks no probable cause. The backend uses only `sector`; `flag` and `under_yellow` are decoded but not used, because the game leaves them unset. The backend decodes strictly, so the
+backend has to be updated before an agent that sends these fields.

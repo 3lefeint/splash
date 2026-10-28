@@ -45,6 +45,8 @@ type Rival struct {
 	Fuel         *float64  `json:"fuel"`
 	FuelLapsLeft *float64  `json:"fuel_laps_left"`
 	Wear         []float64 `json:"wear"`
+	// Cause: see FieldCar.
+	Cause bool `json:"probable_cause,omitempty"`
 	// StopIn is the forecast number of laps until the rival stops. StopBasis says what it rests on: fuel (its own use),
 	// assumed (our consumption applied to its tank) or stint (the length of its earlier stints).
 	StopIn    *float64 `json:"stop_in"`
@@ -72,6 +74,30 @@ type Rejoin struct {
 	BestIn int           `json:"best_in"`
 	// Incomplete is true when pit parameters are missing and Loss is only part of the real time.
 	Incomplete bool `json:"incomplete"`
+	// LapDist is the point of the lap, in metres, where we would sit among the cars after stopping now: our lap
+	// distance minus what a car at race pace covers in Loss seconds, wrapped around the lap. Nil while our lap
+	// distance, the track length or the lap time is unknown.
+	LapDist *float64 `json:"lap_dist"`
+}
+
+// rejoinDist is the lap distance where we would sit in the field after losing loss seconds: behind our position by the
+// distance a car at race pace covers in that time (the track length over the lap time), wrapped around the lap.
+func rejoinDist(in strategyInput, loss float64) *float64 {
+	length := in.sc.TrackLength
+	if length <= 0 || in.lapTime <= 0 || loss <= 0 {
+		return nil
+	}
+	for _, v := range in.sc.Vehicles {
+		if v.CarID != in.car.CarID || v.VehicleName != in.car.VehicleName || v.LapDist == nil {
+			continue
+		}
+		d := math.Mod(*v.LapDist-loss*length/in.lapTime, length)
+		if d < 0 {
+			d += length
+		}
+		return &d
+	}
+	return nil
 }
 
 // Strategy is the race against the other cars.
@@ -207,18 +233,15 @@ func paceOf(times []float64) float64 {
 	return sum / float64(len(good))
 }
 
-// serviceTime is how long our next stop takes in the pit box.
+// serviceTime is how long our next stop takes in the pit box: the tyres first, then the fuel, so the times add up.
 func serviceTime(p store.Params, fuelNeeded float64, swap bool) float64 {
 	var refuel float64
 	if p.RefuelRate > 0 && fuelNeeded > 0 {
 		refuel = fuelNeeded / p.RefuelRate
 	}
-	other := p.TyreChange
+	other := p.TyreChangeTime()
 	if swap {
 		other += p.DriverSwap
-	}
-	if p.ParallelService {
-		return math.Max(refuel, other)
 	}
 	return refuel + other
 }
@@ -253,7 +276,7 @@ func (r *rivalLog) analyse(in strategyInput) *Strategy {
 		ourFPL = *in.car.FuelPerLap
 	}
 	reserve := in.params.Reserve
-	var rivals []Rival
+	rivals := []Rival{} // not nil: with no other car the list is [] in the JSON, not null
 	for i, v := range vs {
 		if i == me {
 			continue
@@ -261,6 +284,9 @@ func (r *rivalLog) analyse(in strategyInput) *Strategy {
 		k := carKey(v.VehicleName, v.CarID)
 		rv := Rival{CarID: v.CarID, VehicleName: v.VehicleName, Driver: v.Driver, Place: v.Place, Control: v.Control,
 			InPits: v.InPits, Stops: v.NumPitstops, Fuel: v.Fuel, Wear: v.Wear}
+		if rv.Wear == nil {
+			rv.Wear = []float64{}
+		}
 		rv.Gap = gapTo(vs, me, i)
 		st := in.stats[k]
 		rv.StintLaps = st.stintLaps
@@ -349,7 +375,7 @@ func rejoin(in strategyInput, rivals []Rival) *Rejoin {
 	if loss <= 0 {
 		return nil
 	}
-	rj := &Rejoin{Loss: loss, Incomplete: through <= 0 || (p.RefuelRate <= 0 && need > 0)}
+	rj := &Rejoin{Loss: loss, Incomplete: through <= 0 || (p.RefuelRate <= 0 && need > 0), LapDist: rejoinDist(in, loss)}
 	maxIn := windowLaps
 	for in0 := 0; in0 <= maxIn; in0++ {
 		lost, passed, also := lostAt(in, rivals, loss, float64(in0))
@@ -371,7 +397,7 @@ func rejoin(in strategyInput, rivals []Rival) *Rejoin {
 // lostAt counts the cars behind us now that would be ahead after we stop in k laps, assuming constant paces and
 // that every rival that stops before then loses the same time we do.
 func lostAt(in strategyInput, rivals []Rival, loss, k float64) (int, []string, []string) {
-	var passed, also []string
+	passed, also := []string{}, []string{} // not nil: they go out as [] when nobody is passed
 	for _, r := range rivals {
 		if r.Gap == nil || *r.Gap >= 0 || r.InPits {
 			continue

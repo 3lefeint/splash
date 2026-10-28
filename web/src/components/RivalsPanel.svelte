@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fixed, signed } from '../lib/format';
   import { tileInfo } from '../lib/info.svelte';
-  import { t } from '../lib/settings.svelte';
+  import { settings, t } from '../lib/settings.svelte';
   import { isAI, shortName, stopLaps } from '../lib/strategy';
   import { live } from '../lib/store';
   import type { Rival } from '../lib/types';
@@ -14,7 +14,7 @@
   type Row = { me: true; place: number } | ({ me: false } & Rival);
   const rows = $derived.by((): Row[] => {
     if (!strategy || !me) return [];
-    const list: Row[] = strategy.rivals.map((r) => ({ me: false as const, ...r }));
+    const list: Row[] = (strategy.rivals ?? []).map((r) => ({ me: false as const, ...r }));
     list.push({ me: true, place: me.place });
     return list.sort((a, b) => a.place - b.place);
   });
@@ -22,7 +22,7 @@
   tileInfo(() => (strategy ? t('rivals.help') : null));
   tileInfo(() => (rejoin?.incomplete ? t('rivals.incomplete') : null));
 
-  const best = $derived(rejoin?.window.find((w) => w.in_laps === rejoin.best_in));
+  const best = $derived(rejoin?.window?.find((w) => w.in_laps === rejoin.best_in));
   const gapText = (g: number | null) => (g == null ? '–' : `${g > 0 ? '▲' : '▼'} ${fixed(Math.abs(g), 1)}`);
   const rateTone = (r: number | null) => (r == null ? '' : r > 0.1 ? 'good' : r < -0.1 ? 'bad' : '');
   const stopText = (r: Rival) => {
@@ -62,9 +62,9 @@
         {#if r.me}
           <tr class="me"><td>{r.place}</td><td colspan="8">{t('rivals.you')}</td></tr>
         {:else}
-          <tr class:pit={r.in_pits}>
+          <tr class:pit={r.in_pits} class:yellow={settings.yellowMarkers && r.probable_cause}>
             <td>{r.place}</td>
-            <td class="name">{shortName(r.driver) || r.vehicle_name}{#if isAI(r)} <span class="ai">{t('rivals.ai')}</span>{/if}{#if r.in_pits} <span class="muted small">{t('map.pit')}</span>{/if}</td>
+            <td class="name">{shortName(r.driver) || r.vehicle_name}{#if settings.yellowMarkers && r.probable_cause} <span class="cause" title={t('rivals.cause')}>{t('rivals.causeShort')}</span>{/if}{#if isAI(r)} <span class="ai">{t('rivals.ai')}</span>{/if}{#if r.in_pits} <span class="muted small">{t('map.pit')}</span>{/if}</td>
             <td class="num">{gapText(r.gap)}</td>
             <td class="num {rateTone(r.rate)}">{r.rate == null ? '–' : signed(r.rate, 2)}</td>
             <td class="num">{r.stops}</td>
@@ -88,6 +88,9 @@
   .name { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; }
   tr.me td { background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 600; }
   tr.pit { opacity: 0.6; }
+  tr.yellow td { background: color-mix(in srgb, #f5c542 16%, transparent); }
+  .cause { font-size: 0.7rem; padding: 1px 6px; border-radius: 999px; font-weight: 600; }
+  .cause { background: var(--bad); color: #fff; }
   .ai { font-size: 0.65rem; font-weight: 700; padding: 0 5px; border-radius: 999px; background: var(--warn, #e5a50a); color: #231600; }
   .good { color: var(--good, #3fb950); }
   .bad { color: var(--bad, #e5534b); }

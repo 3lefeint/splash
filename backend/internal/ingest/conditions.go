@@ -158,9 +158,17 @@ type sessionLog struct {
 
 // update merges what a message tells about the session and returns the record to write, or nil when it is not due.
 func (s *sessionLog) update(id string, now time.Time, et float64, track, sessionType, car string, carID int) *store.SessionInfo {
+	info, _, _ := s.updateSwitch(id, now, et, track, sessionType, car, carID)
+	return info
+}
+
+// updateSwitch is update that also reports a change of session: the id of the previous one ("" for the first) and
+// whether the session changed with this call.
+func (s *sessionLog) updateSwitch(id string, now time.Time, et float64, track, sessionType, car string, carID int) (info *store.SessionInfo, prev string, switched bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.info.SessionID != id {
+		prev, switched = s.info.SessionID, true
 		s.info, s.flushed = store.SessionInfo{SessionID: id, CarID: -1}, time.Time{}
 	}
 	set := func(dst *string, v string) {
@@ -176,9 +184,9 @@ func (s *sessionLog) update(id string, now time.Time, et float64, track, session
 	}
 	s.info.LastET, s.info.LastSeen = et, now
 	if !s.flushed.IsZero() && !s.dirty && now.Sub(s.flushed) < sessionFlush {
-		return nil
+		return nil, prev, switched
 	}
 	s.flushed, s.dirty = now, false
 	out := s.info
-	return &out
+	return &out, prev, switched
 }

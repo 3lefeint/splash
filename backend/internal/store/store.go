@@ -3,6 +3,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"time"
 
 	"github.com/3lefeint/splash/backend/internal/pitlane"
@@ -10,6 +12,92 @@ import (
 	"github.com/3lefeint/splash/backend/internal/wear"
 	"github.com/3lefeint/splash/backend/internal/wire"
 )
+
+// Team is a group that runs its own race; everything but track data is kept per team.
+type Team struct {
+	ID   int64
+	Name string
+}
+
+// Agent is a registered agent token. Only the hash of the token is stored.
+type Agent struct {
+	ID      int64
+	Name    string
+	TeamID  int64
+	Revoked bool
+	// LastSeen is when the agent last connected; nil if it never did.
+	LastSeen *time.Time
+}
+
+// Member says which team an e-mail address belongs to. An address belongs to exactly one team.
+type Member struct {
+	Email   string
+	TeamID  int64
+	Team    string // name of the team, filled when reading
+	IsAdmin bool
+}
+
+// AuditEntry is one write request: who did it, in which team and what was requested. Bodies and tokens are never kept.
+type AuditEntry struct {
+	TS     time.Time
+	Email  string
+	Team   string
+	Method string
+	Path   string
+}
+
+// ErrExists is returned when a team name or a token hash is already taken.
+var ErrExists = errors.New("already exists")
+
+// ErrNoTeam is returned when a member is assigned to a team that does not exist.
+var ErrNoTeam = errors.New("unknown team")
+
+// HashToken returns the SHA-256 of an agent token, which is what is stored and looked up. The tokens are random
+// secrets with plenty of entropy, so a fast hash is enough; salting or stretching would only make the lookup by hash
+// impossible.
+func HashToken(token string) []byte {
+	h := sha256.Sum256([]byte(token))
+	return h[:]
+}
+
+// Directory holds what is not part of one team: the teams and the agent tokens. A Store returned by ForTeam only
+// sees the data of that team; track data (outlines, pit lanes, corners) is shared by all teams.
+type Directory interface {
+	ForTeam(id int64) Store
+	// TeamByName returns the team with that name; ok is false when there is none.
+	TeamByName(ctx context.Context, name string) (t Team, ok bool, err error)
+	// Teams lists all teams by id.
+	Teams(ctx context.Context) ([]Team, error)
+	// MemberByEmail returns the membership of an e-mail address (lower case); ok is false for an unknown address.
+	MemberByEmail(ctx context.Context, email string) (m Member, ok bool, err error)
+	// Members lists all members by e-mail address.
+	Members(ctx context.Context) ([]Member, error)
+	// SetMember adds an address to a team or changes its team and admin flag. The team must exist.
+	SetMember(ctx context.Context, m Member) error
+	DeleteMember(ctx context.Context, email string) error
+	// Agents lists all registered agents by id.
+	Agents(ctx context.Context) ([]Agent, error)
+	// AddAudit appends one entry to the audit log.
+	AddAudit(ctx context.Context, e AuditEntry) error
+	// Audit returns the newest entries, newest first.
+	Audit(ctx context.Context, limit int) ([]AuditEntry, error)
+	// CreateTeam adds a team and returns ErrExists when the name is taken.
+	CreateTeam(ctx context.Context, name string) (Team, error)
+	// CreateAgent registers the hash of a token for a team and returns ErrExists when the hash is known.
+	CreateAgent(ctx context.Context, name string, teamID int64, tokenHash []byte) (Agent, error)
+	// RevokeAgent makes the token of an agent stop working.
+	RevokeAgent(ctx context.Context, id int64) error
+	// AgentByTokenHash finds the agent whose token has this hash, revoked or not; ok is false when none matches.
+	AgentByTokenHash(ctx context.Context, hash []byte) (a Agent, ok bool, err error)
+	// TouchAgent records that the agent connected just now.
+	TouchAgent(ctx context.Context, id int64) error
+}
+
+// DB is the root of a database: the shared data plus access to every team.
+type DB interface {
+	Store
+	Directory
+}
 
 // LapRecord is a stored lap.
 type LapRecord struct {

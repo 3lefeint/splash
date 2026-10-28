@@ -65,3 +65,24 @@ func TestDecodeScoring(t *testing.T) {
 		t.Fatalf("%+v", s)
 	}
 }
+
+func TestScoringVehicleSectorFieldsAreOptional(t *testing.T) {
+	msg := func(vehicle string) string {
+		return `{"v":1,"type":"scoring","agent_id":"a","role":"driver","session_id":"s","seq":0,"et":1,"payload":{"track":"t","session_type":"race","end_et":10,"sector_flags":[1,11,11],"vehicles":[` + vehicle + `]}}`
+	}
+	base := `"car_id":0,"vehicle_name":"v","driver":"d","vehicle_class":"c","place":1,"laps":1`
+	if _, err := Decode([]byte(msg("{" + base + "}"))); err != nil {
+		t.Fatalf("a vehicle from an older agent must decode: %v", err)
+	}
+	m, err := Decode([]byte(msg("{" + base + `,"sector":2,"flag":1,"under_yellow":true}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := m.Body.(Scoring).Vehicles[0]
+	if v.Sector == nil || *v.Sector != 2 || v.Flag == nil || *v.Flag != 1 || !v.UnderYellow {
+		t.Fatalf("%+v", v)
+	}
+	if _, err := Decode([]byte(msg("{" + base + `,"sector":4}`))); err == nil {
+		t.Fatal("sector 4 must be refused")
+	}
+}

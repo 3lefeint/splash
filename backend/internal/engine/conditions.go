@@ -84,10 +84,10 @@ func (e *Engine) weatherHistory(ctx context.Context, session string, et float64,
 		}
 		sp := store.WeatherPoint{ET: p.ET, Ambient: p.Ambient, Track: p.Track, Rain: p.Rain, Wetness: p.Wetness}
 		if err := e.Store.SaveWeatherPoint(ctx, session, sp); err != nil {
-			e.Log.Warn("save weather point", "err", err)
+			e.Log.Error("save weather point", "err", err)
 		}
 	}
-	return append([]WeatherPoint(nil), l.points...)
+	return append([]WeatherPoint{}, l.points...)
 }
 
 func weatherState(w *wire.Weather, history []WeatherPoint) *Weather {

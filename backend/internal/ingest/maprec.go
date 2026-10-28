@@ -58,7 +58,7 @@ func (r *MapRecorder) Observe(ctx context.Context, sessionID string, sc wire.Sco
 	if !seen || time.Since(c.at) > mapCheckTTL {
 		_, has, err := r.Store.GetTrackMap(ctx, sc.Track)
 		if err != nil {
-			r.Log.Warn("track map lookup", "err", err)
+			r.Log.Error("track map lookup", "err", err)
 			return
 		}
 		c = mapCheck{time.Now(), has}
@@ -71,7 +71,7 @@ func (r *MapRecorder) Observe(ctx context.Context, sessionID string, sc wire.Sco
 	}
 	if m := r.b.Observe(sc); m != nil {
 		if err := r.Store.SaveTrackMap(ctx, *m); err != nil {
-			r.Log.Warn("track map save", "err", err)
+			r.Log.Error("track map save", "err", err)
 			return
 		}
 		r.Log.Info("track map recorded", "track", m.Track, "length", m.Length)

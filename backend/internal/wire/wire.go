@@ -118,6 +118,12 @@ type ScoringVehicle struct {
 	Penalties        int       `json:"penalties"`
 	PathLateral      *float64  `json:"path_lateral"`
 	TrackEdge        *float64  `json:"track_edge"`
+	// Sector is the sector (1 to 3) the car is in, Flag the plugin's flag shown to the car and UnderYellow its
+	// under-yellow state. An agent sends them only while a sector flag is up (Sector) or when they are not at rest
+	// (Flag, UnderYellow); older agents never send them.
+	Sector      *int `json:"sector"`
+	Flag        *int `json:"flag"`
+	UnderYellow bool `json:"under_yellow"`
 	// TyreWear was the mean wear sent by agents before Wear; it is accepted and ignored so an older agent keeps working.
 	TyreWear *float64 `json:"tyre_wear"`
 }
@@ -289,6 +295,9 @@ func (s Scoring) validate() error {
 	for _, v := range s.Vehicles {
 		if v.VehicleName == "" || v.Place < 1 {
 			return fmt.Errorf("vehicle %d: vehicle_name and place >= 1 required", v.CarID)
+		}
+		if v.Sector != nil && (*v.Sector < 1 || *v.Sector > 3) {
+			return fmt.Errorf("vehicle %d: sector must be 1 to 3", v.CarID)
 		}
 	}
 	return nil

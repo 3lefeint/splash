@@ -3,7 +3,7 @@ kind: Kustomization
 namespace: splash
 resources:
   - ../../base
-# Separates the selectors from the test overlay, which runs in the same namespace.
+# Separates the selectors from the staging overlay, which runs in the same namespace.
 labels:
   - pairs:
       env: prod
@@ -19,3 +19,15 @@ patches:
       - op: replace
         path: /spec/rules/0/host
         value: splash.example.com
+      - op: replace
+        path: /spec/ingressClassName
+        value: public
+  # Prod must not start without browser authentication: these two references are required, not optional.
+  - target:
+      kind: Deployment
+      name: splash
+    patch: |-
+      - op: remove
+        path: /spec/template/spec/containers/0/env/2/valueFrom/secretKeyRef/optional
+      - op: remove
+        path: /spec/template/spec/containers/0/env/3/valueFrom/secretKeyRef/optional

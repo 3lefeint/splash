@@ -38,7 +38,8 @@ def scoring(vehicles=(), track=b"Track A", session=10, start_et=36000.0, et=100.
                        mInPits=v.get("pits", False), mLastLapTime=v.get("last", -1.0),
                        mLastSector1=v.get("s1", -1.0), mLastSector2=v.get("s12", -1.0),
                        mBestLapTime=-1.0, mTimeBehindNext=v.get("gap", 0.0), mLapDist=v.get("dist", 0.0),
-                       mPitState=v.get("pit_state", 0), mNumPenalties=v.get("penalties", 0)))
+                       mPitState=v.get("pit_state", 0), mNumPenalties=v.get("penalties", 0),
+                       mSector=v.get("sector", 1), mFlag=v.get("flag", 0), mUnderYellow=v.get("under_yellow", False)))
     return b
 
 

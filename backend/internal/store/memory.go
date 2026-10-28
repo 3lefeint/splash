@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"math"
 	"sort"
@@ -13,8 +14,36 @@ import (
 	"github.com/3lefeint/splash/backend/internal/wire"
 )
 
-// Memory is an in-memory Store for tests and local runs without a database.
+// Memory is an in-memory Store for tests and local runs without a database. NewMemory returns the root, which holds
+// the data shared by all teams (track data, teams, agents); ForTeam returns the Store of one team. Like the Postgres
+// root, the root itself is a team of its own with id 0 that no agent or request ever maps to.
 type Memory struct {
+	*memTeam
+	*memShared
+	team int64
+}
+
+// memShared is what all teams have in common.
+type memShared struct {
+	smu     sync.Mutex
+	maps    map[string]trackmap.Map
+	corners map[string][]Corner
+	lanes   map[string]pitlane.Lane
+
+	teams   map[int64]Team
+	agents  map[int64]*memAgent
+	members map[string]Member
+	audit   []AuditEntry
+	views   map[int64]*Memory
+}
+
+type memAgent struct {
+	Agent
+	hash []byte
+}
+
+// memTeam is the data of one team.
+type memTeam struct {
 	mu       sync.Mutex
 	laps     map[lapKey]wire.Lap
 	stops    []StopRecord
@@ -23,14 +52,11 @@ type Memory struct {
 	params    map[string]Params
 	plan      []PlanRow
 	overrides map[string]Override
-	maps      map[string]trackmap.Map
-	corners   map[string][]Corner
 	setups    []PitSetup
 	wears     map[lapKey]wear.LapWear
 	sessions  map[string]SessionInfo
 	conds     map[lapKey]LapConditions
 	weather   map[string][]WeatherPoint
-	lanes     map[string]pitlane.Lane
 }
 
 type lapKey struct {
@@ -40,21 +66,48 @@ type lapKey struct {
 	lap     int
 }
 
-// NewMemory returns an empty in-memory store.
-func NewMemory() *Memory {
-	return &Memory{
+func newMemTeam() *memTeam {
+	return &memTeam{
 		laps:      map[lapKey]wire.Lap{},
 		sessions:  map[string]SessionInfo{},
 		conds:     map[lapKey]LapConditions{},
 		weather:   map[string][]WeatherPoint{},
-		lanes:     map[string]pitlane.Lane{},
 		progress:  map[string]int64{},
 		params:    map[string]Params{},
 		overrides: map[string]Override{},
-		maps:      map[string]trackmap.Map{},
-		corners:   map[string][]Corner{},
 		wears:     map[lapKey]wear.LapWear{},
 	}
+}
+
+// DefaultTeamName is the team that holds the data that existed before teams were introduced.
+const DefaultTeamName = "default"
+
+// NewMemory returns an empty in-memory store with the team "default" (id 1, as the migration creates it).
+func NewMemory() *Memory {
+	sh := &memShared{
+		maps:    map[string]trackmap.Map{},
+		corners: map[string][]Corner{},
+		lanes:   map[string]pitlane.Lane{},
+		teams:   map[int64]Team{1: {1, DefaultTeamName}},
+		agents:  map[int64]*memAgent{},
+		members: map[string]Member{},
+		views:   map[int64]*Memory{},
+	}
+	root := &Memory{newMemTeam(), sh, 0}
+	sh.views[0] = root
+	return root
+}
+
+// ForTeam returns the Store of one team; the same id always gives the same data.
+func (m *Memory) ForTeam(id int64) Store {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	v, ok := m.views[id]
+	if !ok {
+		v = &Memory{newMemTeam(), m.memShared, id}
+		m.views[id] = v
+	}
+	return v
 }
 
 func (m *Memory) SaveLap(_ context.Context, sessionID string, l wire.Lap) error {
@@ -202,7 +255,7 @@ func (m *Memory) ListParams(_ context.Context) ([]Params, error) {
 func (m *Memory) SetParams(_ context.Context, p Params) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.params[p.Track+"|"+p.Car] = p
+	m.params[p.Track+"|"+p.Car] = p.WithDefaults()
 	return nil
 }
 
@@ -244,29 +297,29 @@ func (m *Memory) DeleteOverride(_ context.Context, key string) error {
 }
 
 func (m *Memory) GetTrackMap(_ context.Context, track string) (trackmap.Map, bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.smu.Lock()
+	defer m.smu.Unlock()
 	tm, ok := m.maps[track]
 	return tm, ok, nil
 }
 
 func (m *Memory) SaveTrackMap(_ context.Context, tm trackmap.Map) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.smu.Lock()
+	defer m.smu.Unlock()
 	m.maps[tm.Track] = tm
 	return nil
 }
 
 func (m *Memory) DeleteTrackMap(_ context.Context, track string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.smu.Lock()
+	defer m.smu.Unlock()
 	delete(m.maps, track)
 	return nil
 }
 
 func (m *Memory) ListTracks(_ context.Context) ([]TrackInfo, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.smu.Lock()
+	defer m.smu.Unlock()
 	out := make([]TrackInfo, 0, len(m.maps))
 	for _, tm := range m.maps {
 		out = append(out, TrackInfo{tm.Track, tm.Length})
@@ -276,14 +329,14 @@ func (m *Memory) ListTracks(_ context.Context) ([]TrackInfo, error) {
 }
 
 func (m *Memory) GetCorners(_ context.Context, track string) ([]Corner, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.smu.Lock()
+	defer m.smu.Unlock()
 	return append([]Corner{}, m.corners[track]...), nil
 }
 
 func (m *Memory) SaveCorners(_ context.Context, track string, corners []Corner) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.smu.Lock()
+	defer m.smu.Unlock()
 	m.corners[track] = append([]Corner{}, corners...)
 	return nil
 }
@@ -477,15 +530,174 @@ func (m *Memory) WeatherPoints(_ context.Context, sessionID string, limit int) (
 }
 
 func (m *Memory) GetPitLane(_ context.Context, track string) (pitlane.Lane, bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.smu.Lock()
+	defer m.smu.Unlock()
 	l, ok := m.lanes[track]
 	return l, ok, nil
 }
 
 func (m *Memory) SavePitLane(_ context.Context, l pitlane.Lane) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.smu.Lock()
+	defer m.smu.Unlock()
 	m.lanes[l.Track] = l
 	return nil
+}
+
+func (m *Memory) TeamByName(_ context.Context, name string) (Team, bool, error) {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	for _, t := range m.teams {
+		if t.Name == name {
+			return t, true, nil
+		}
+	}
+	return Team{}, false, nil
+}
+
+func (m *Memory) CreateTeam(_ context.Context, name string) (Team, error) {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	var next int64 = 1
+	for id, t := range m.teams {
+		if t.Name == name {
+			return Team{}, ErrExists
+		}
+		if id >= next {
+			next = id + 1
+		}
+	}
+	t := Team{next, name}
+	m.teams[next] = t
+	return t, nil
+}
+
+func (m *Memory) CreateAgent(_ context.Context, name string, teamID int64, tokenHash []byte) (Agent, error) {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	if _, ok := m.teams[teamID]; !ok {
+		return Agent{}, ErrNoTeam
+	}
+	var next int64 = 1
+	for id, a := range m.agents {
+		if bytes.Equal(a.hash, tokenHash) {
+			return Agent{}, ErrExists
+		}
+		if id >= next {
+			next = id + 1
+		}
+	}
+	a := &memAgent{Agent: Agent{ID: next, Name: name, TeamID: teamID}, hash: tokenHash}
+	m.agents[next] = a
+	return a.Agent, nil
+}
+
+func (m *Memory) RevokeAgent(_ context.Context, id int64) error {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	if a, ok := m.agents[id]; ok {
+		a.Revoked = true
+	}
+	return nil
+}
+
+func (m *Memory) AgentByTokenHash(_ context.Context, hash []byte) (Agent, bool, error) {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	for _, a := range m.agents {
+		if bytes.Equal(a.hash, hash) {
+			return a.Agent, true, nil
+		}
+	}
+	return Agent{}, false, nil
+}
+
+func (m *Memory) TouchAgent(_ context.Context, id int64) error {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	if a, ok := m.agents[id]; ok {
+		now := time.Now()
+		a.LastSeen = &now
+	}
+	return nil
+}
+
+func (m *Memory) Teams(_ context.Context) ([]Team, error) {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	out := make([]Team, 0, len(m.teams))
+	for _, t := range m.teams {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+// member returns the member with the name of its team filled in.
+func (m *Memory) member(v Member) Member {
+	v.Team = m.teams[v.TeamID].Name
+	return v
+}
+
+func (m *Memory) MemberByEmail(_ context.Context, email string) (Member, bool, error) {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	v, ok := m.members[email]
+	return m.member(v), ok, nil
+}
+
+func (m *Memory) Members(_ context.Context) ([]Member, error) {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	out := make([]Member, 0, len(m.members))
+	for _, v := range m.members {
+		out = append(out, m.member(v))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Email < out[j].Email })
+	return out, nil
+}
+
+func (m *Memory) SetMember(_ context.Context, v Member) error {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	if _, ok := m.teams[v.TeamID]; !ok {
+		return ErrNoTeam
+	}
+	v.Team = ""
+	m.members[v.Email] = v
+	return nil
+}
+
+func (m *Memory) DeleteMember(_ context.Context, email string) error {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	delete(m.members, email)
+	return nil
+}
+
+func (m *Memory) Agents(_ context.Context) ([]Agent, error) {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	out := make([]Agent, 0, len(m.agents))
+	for _, a := range m.agents {
+		out = append(out, a.Agent)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+func (m *Memory) AddAudit(_ context.Context, e AuditEntry) error {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	m.audit = append(m.audit, e)
+	return nil
+}
+
+func (m *Memory) Audit(_ context.Context, limit int) ([]AuditEntry, error) {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	var out []AuditEntry
+	for i := len(m.audit) - 1; i >= 0 && len(out) < limit; i-- {
+		out = append(out, m.audit[i])
+	}
+	return out, nil
 }

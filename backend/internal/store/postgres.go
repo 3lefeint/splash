@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -22,11 +23,18 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// Postgres is the Store backed by PostgreSQL.
-type Postgres struct{ pool *pgxpool.Pool }
+// Postgres is the Store backed by PostgreSQL. NewPostgres returns the root, which serves the shared track data and
+// the Directory; ForTeam returns the Store of one team. The root has team 0, which no row belongs to.
+type Postgres struct {
+	pool *pgxpool.Pool
+	team int64
+}
 
 // NewPostgres wraps a connection pool.
-func NewPostgres(pool *pgxpool.Pool) *Postgres { return &Postgres{pool} }
+func NewPostgres(pool *pgxpool.Pool) *Postgres { return &Postgres{pool, 0} }
+
+// ForTeam returns the Store of one team.
+func (p *Postgres) ForTeam(id int64) Store { return &Postgres{p.pool, id} }
 
 // Migrate applies all pending migrations.
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
@@ -52,9 +60,9 @@ func (p *Postgres) SaveLap(ctx context.Context, sessionID string, l wire.Lap) er
 	}
 	_, err := p.pool.Exec(ctx, `
 INSERT INTO laps (session_id, car_id, vehicle_name, lap, driver, lap_time, s1, s2, s3,
-                  fuel_start, fuel_end, tyre_age, wear_fl, wear_fr, wear_rl, wear_rr, fcy, in_lap, out_lap)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-ON CONFLICT (session_id, car_id, vehicle_name, lap) DO UPDATE SET
+                  fuel_start, fuel_end, tyre_age, wear_fl, wear_fr, wear_rl, wear_rr, fcy, in_lap, out_lap, team_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+ON CONFLICT (team_id, session_id, car_id, vehicle_name, lap) DO UPDATE SET
     driver     = COALESCE(NULLIF(EXCLUDED.driver, ''), laps.driver),
     lap_time   = COALESCE(EXCLUDED.lap_time, laps.lap_time),
     s1         = COALESCE(EXCLUDED.s1, laps.s1),
@@ -71,7 +79,7 @@ ON CONFLICT (session_id, car_id, vehicle_name, lap) DO UPDATE SET
     in_lap     = laps.in_lap OR EXCLUDED.in_lap,
     out_lap    = laps.out_lap OR EXCLUDED.out_lap`,
 		sessionID, l.CarID, l.VehicleName, l.Lap, l.Driver, l.LapTime, l.S1, l.S2, l.S3,
-		l.FuelStart, l.FuelEnd, l.TyreAge, w[0], w[1], w[2], w[3], l.FCY, l.InLap, l.OutLap)
+		l.FuelStart, l.FuelEnd, l.TyreAge, w[0], w[1], w[2], w[3], l.FCY, l.InLap, l.OutLap, p.team)
 	return err
 }
 
@@ -80,12 +88,12 @@ func (p *Postgres) SaveEvent(ctx context.Context, sessionID string, et float64, 
 	switch e.Kind {
 	case wire.EventPitEntry:
 		_, err = p.pool.Exec(ctx, `
-INSERT INTO stops (session_id, car_id, vehicle_name, entry_et)
-SELECT $1, $2, $3, $4::double precision
+INSERT INTO stops (session_id, car_id, vehicle_name, entry_et, team_id)
+SELECT $1, $2, $3, $4::double precision, $6::bigint
 WHERE NOT EXISTS (SELECT 1 FROM stops
-                  WHERE session_id = $1 AND car_id = $2 AND vehicle_name = $3
+                  WHERE team_id = $6 AND session_id = $1 AND car_id = $2 AND vehicle_name = $3
                     AND abs(entry_et - $4::double precision) <= $5)
-ON CONFLICT DO NOTHING`, sessionID, e.CarID, e.VehicleName, et, PitEntryWindow)
+ON CONFLICT DO NOTHING`, sessionID, e.CarID, e.VehicleName, et, PitEntryWindow, p.team)
 	case wire.EventPitExit:
 		changed := e.TyresChanged != nil && *e.TyresChanged
 		_, err = p.pool.Exec(ctx, `
@@ -93,23 +101,23 @@ UPDATE stops SET exit_et = $4,
                  fuel_added = COALESCE($5, fuel_added),
                  tyres_changed = tyres_changed OR $6
 WHERE id = (SELECT id FROM stops
-            WHERE session_id = $1 AND car_id = $2 AND vehicle_name = $3
+            WHERE team_id = $7 AND session_id = $1 AND car_id = $2 AND vehicle_name = $3
               AND exit_et IS NULL AND entry_et <= $4
-            ORDER BY entry_et DESC LIMIT 1)`, sessionID, e.CarID, e.VehicleName, et, e.FuelAdded, changed)
+            ORDER BY entry_et DESC LIMIT 1)`, sessionID, e.CarID, e.VehicleName, et, e.FuelAdded, changed, p.team)
 	case wire.EventDriverSwap:
 		_, err = p.pool.Exec(ctx, `
 UPDATE stops SET driver_swap = true
 WHERE id = (SELECT id FROM stops
-            WHERE session_id = $1 AND car_id = $2 AND vehicle_name = $3 AND entry_et <= $4
-            ORDER BY entry_et DESC LIMIT 1)`, sessionID, e.CarID, e.VehicleName, et)
+            WHERE team_id = $5 AND session_id = $1 AND car_id = $2 AND vehicle_name = $3 AND entry_et <= $4
+            ORDER BY entry_et DESC LIMIT 1)`, sessionID, e.CarID, e.VehicleName, et, p.team)
 	}
 	return err
 }
 
 func (p *Postgres) Progress(ctx context.Context, agentID, sessionID string) (int64, bool, error) {
 	var seq int64
-	err := p.pool.QueryRow(ctx, `SELECT last_seq FROM agent_progress WHERE agent_id = $1 AND session_id = $2`,
-		agentID, sessionID).Scan(&seq)
+	err := p.pool.QueryRow(ctx, `SELECT last_seq FROM agent_progress WHERE agent_id = $1 AND session_id = $2 AND team_id = $3`,
+		agentID, sessionID, p.team).Scan(&seq)
 	if err == pgx.ErrNoRows {
 		return 0, false, nil
 	}
@@ -118,14 +126,14 @@ func (p *Postgres) Progress(ctx context.Context, agentID, sessionID string) (int
 
 func (p *Postgres) SetProgress(ctx context.Context, agentID, sessionID string, seq int64) error {
 	_, err := p.pool.Exec(ctx, `
-INSERT INTO agent_progress (agent_id, session_id, last_seq) VALUES ($1,$2,$3)
-ON CONFLICT (agent_id, session_id) DO UPDATE SET last_seq = GREATEST(agent_progress.last_seq, EXCLUDED.last_seq)`,
-		agentID, sessionID, seq)
+INSERT INTO agent_progress (agent_id, session_id, last_seq, team_id) VALUES ($1,$2,$3,$4)
+ON CONFLICT (team_id, agent_id, session_id) DO UPDATE SET last_seq = GREATEST(agent_progress.last_seq, EXCLUDED.last_seq)`,
+		agentID, sessionID, seq, p.team)
 	return err
 }
 
 func (p *Postgres) Laps(ctx context.Context, sessionID string) ([]LapRecord, error) {
-	rows, err := p.pool.Query(ctx, lapSelect+` WHERE session_id = $1 ORDER BY car_id, lap`, sessionID)
+	rows, err := p.pool.Query(ctx, lapSelect+` WHERE team_id = $2 AND session_id = $1 ORDER BY car_id, lap`, sessionID, p.team)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +143,7 @@ func (p *Postgres) Laps(ctx context.Context, sessionID string) ([]LapRecord, err
 func (p *Postgres) Stops(ctx context.Context, sessionID string) ([]StopRecord, error) {
 	rows, err := p.pool.Query(ctx, `
 SELECT car_id, vehicle_name, entry_et, exit_et, fuel_added, tyres_changed, driver_swap, stopped, work, fuel_time
-FROM stops WHERE session_id = $1 ORDER BY entry_et`, sessionID)
+FROM stops WHERE team_id = $2 AND session_id = $1 ORDER BY entry_et`, sessionID, p.team)
 	if err != nil {
 		return nil, err
 	}
@@ -151,9 +159,20 @@ FROM stops WHERE session_id = $1 ORDER BY entry_et`, sessionID)
 	return out, rows.Err()
 }
 
-// Connect opens a pool for the given database URL.
-func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+// Connect opens a pool for the given database URL. A maxConns above zero overrides the pool size from the URL; a
+// non-nil tracer sees every call (see QueryLogger).
+func Connect(ctx context.Context, url string, maxConns int32, tracer pgx.QueryTracer) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	if maxConns > 0 {
+		cfg.MaxConns = maxConns
+	}
+	if tracer != nil {
+		cfg.ConnConfig.Tracer = tracer
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}
@@ -165,8 +184,8 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 }
 
 func (p *Postgres) LapsOfCar(ctx context.Context, sessionID string, carID int, vehicleName string) ([]LapRecord, error) {
-	rows, err := p.pool.Query(ctx, lapSelect+` WHERE session_id = $1 AND car_id = $2 AND vehicle_name = $3 ORDER BY lap`,
-		sessionID, carID, vehicleName)
+	rows, err := p.pool.Query(ctx, lapSelect+` WHERE team_id = $4 AND session_id = $1 AND car_id = $2 AND vehicle_name = $3 ORDER BY lap`,
+		sessionID, carID, vehicleName, p.team)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +193,7 @@ func (p *Postgres) LapsOfCar(ctx context.Context, sessionID string, carID int, v
 }
 
 func (p *Postgres) GetParams(ctx context.Context, track, car string) (Params, bool, error) {
-	rows, err := p.pool.Query(ctx, paramsSelect+` WHERE track = $1 AND car = $2`, track, car)
+	rows, err := p.pool.Query(ctx, paramsSelect+` WHERE team_id = $3 AND track = $1 AND car = $2`, track, car, p.team)
 	if err != nil {
 		return Params{}, false, err
 	}
@@ -186,7 +205,7 @@ func (p *Postgres) GetParams(ctx context.Context, track, car string) (Params, bo
 }
 
 func (p *Postgres) ListParams(ctx context.Context) ([]Params, error) {
-	rows, err := p.pool.Query(ctx, paramsSelect+` ORDER BY track, car`)
+	rows, err := p.pool.Query(ctx, paramsSelect+` WHERE team_id = $1 ORDER BY track, car`, p.team)
 	if err != nil {
 		return nil, err
 	}
@@ -194,22 +213,27 @@ func (p *Postgres) ListParams(ctx context.Context) ([]Params, error) {
 }
 
 func (p *Postgres) SetParams(ctx context.Context, v Params) error {
+	v = v.WithDefaults()
 	_, err := p.pool.Exec(ctx, `
 INSERT INTO params (track, car, pit_through_green, pit_through_fcy, refuel_rate, tyre_change, driver_swap,
-                    parallel_service, fuel_effect, deg_per_lap, save_cost, reserve)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-ON CONFLICT (track, car) DO UPDATE SET
+                    fuel_effect, deg_per_lap, save_cost, reserve,
+                    fit_min_laps, fit_slow_percent, fit_skip_fcy, fit_skip_wet, team_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+ON CONFLICT (team_id, track, car) DO UPDATE SET
     pit_through_green = EXCLUDED.pit_through_green, pit_through_fcy = EXCLUDED.pit_through_fcy,
     refuel_rate = EXCLUDED.refuel_rate, tyre_change = EXCLUDED.tyre_change, driver_swap = EXCLUDED.driver_swap,
-    parallel_service = EXCLUDED.parallel_service, fuel_effect = EXCLUDED.fuel_effect,
-    deg_per_lap = EXCLUDED.deg_per_lap, save_cost = EXCLUDED.save_cost, reserve = EXCLUDED.reserve`,
+    fuel_effect = EXCLUDED.fuel_effect,
+    deg_per_lap = EXCLUDED.deg_per_lap, save_cost = EXCLUDED.save_cost, reserve = EXCLUDED.reserve,
+    fit_min_laps = EXCLUDED.fit_min_laps, fit_slow_percent = EXCLUDED.fit_slow_percent,
+    fit_skip_fcy = EXCLUDED.fit_skip_fcy, fit_skip_wet = EXCLUDED.fit_skip_wet`,
 		v.Track, v.Car, v.PitThroughGreen, v.PitThroughFCY, v.RefuelRate, v.TyreChange, v.DriverSwap,
-		v.ParallelService, v.FuelEffect, v.DegPerLap, v.SaveCost, v.Reserve)
+		v.FuelEffect, v.DegPerLap, v.SaveCost, v.Reserve,
+		v.FitMinLaps, v.FitSlowPercent, *v.FitSkipFCY, *v.FitSkipWet, p.team)
 	return err
 }
 
 func (p *Postgres) GetStintPlan(ctx context.Context) ([]PlanRow, error) {
-	rows, err := p.pool.Query(ctx, `SELECT driver, duration FROM stint_plan ORDER BY position`)
+	rows, err := p.pool.Query(ctx, `SELECT driver, duration FROM stint_plan WHERE team_id = $1 ORDER BY position`, p.team)
 	if err != nil {
 		return nil, err
 	}
@@ -231,12 +255,12 @@ func (p *Postgres) SetStintPlan(ctx context.Context, plan []PlanRow) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `DELETE FROM stint_plan`); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM stint_plan WHERE team_id = $1`, p.team); err != nil {
 		return err
 	}
 	for i, r := range plan {
-		if _, err := tx.Exec(ctx, `INSERT INTO stint_plan (position, driver, duration) VALUES ($1,$2,$3)`,
-			i+1, r.Driver, r.Duration); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO stint_plan (position, driver, duration, team_id) VALUES ($1,$2,$3,$4)`,
+			i+1, r.Driver, r.Duration, p.team); err != nil {
 			return err
 		}
 	}
@@ -244,7 +268,7 @@ func (p *Postgres) SetStintPlan(ctx context.Context, plan []PlanRow) error {
 }
 
 func (p *Postgres) GetOverrides(ctx context.Context) (map[string]Override, error) {
-	rows, err := p.pool.Query(ctx, `SELECT key, value, set_at FROM overrides`)
+	rows, err := p.pool.Query(ctx, `SELECT key, value, set_at FROM overrides WHERE team_id = $1`, p.team)
 	if err != nil {
 		return nil, err
 	}
@@ -262,29 +286,33 @@ func (p *Postgres) GetOverrides(ctx context.Context) (map[string]Override, error
 
 func (p *Postgres) SetOverride(ctx context.Context, key string, value float64) error {
 	_, err := p.pool.Exec(ctx, `
-INSERT INTO overrides (key, value) VALUES ($1,$2)
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, set_at = now()`, key, value)
+INSERT INTO overrides (key, value, team_id) VALUES ($1,$2,$3)
+ON CONFLICT (team_id, key) DO UPDATE SET value = EXCLUDED.value, set_at = now()`, key, value, p.team)
 	return err
 }
 
 func (p *Postgres) DeleteOverride(ctx context.Context, key string) error {
-	_, err := p.pool.Exec(ctx, `DELETE FROM overrides WHERE key = $1`, key)
+	_, err := p.pool.Exec(ctx, `DELETE FROM overrides WHERE team_id = $2 AND key = $1`, key, p.team)
 	return err
 }
 
 const paramsSelect = `SELECT track, car, pit_through_green, pit_through_fcy, refuel_rate, tyre_change, driver_swap,
-       parallel_service, fuel_effect, deg_per_lap, save_cost, reserve FROM params`
+       fuel_effect, deg_per_lap, save_cost, reserve,
+       fit_min_laps, fit_slow_percent, fit_skip_fcy, fit_skip_wet FROM params`
 
 func scanParams(rows pgx.Rows) ([]Params, error) {
 	defer rows.Close()
 	var out []Params
 	for rows.Next() {
 		var v Params
+		var skipFCY, skipWet bool
 		if err := rows.Scan(&v.Track, &v.Car, &v.PitThroughGreen, &v.PitThroughFCY, &v.RefuelRate, &v.TyreChange,
-			&v.DriverSwap, &v.ParallelService, &v.FuelEffect, &v.DegPerLap, &v.SaveCost, &v.Reserve); err != nil {
+			&v.DriverSwap, &v.FuelEffect, &v.DegPerLap, &v.SaveCost, &v.Reserve,
+			&v.FitMinLaps, &v.FitSlowPercent, &skipFCY, &skipWet); err != nil {
 			return nil, err
 		}
-		out = append(out, v)
+		v.FitSkipFCY, v.FitSkipWet = &skipFCY, &skipWet
+		out = append(out, v.WithDefaults())
 	}
 	return out, rows.Err()
 }
@@ -393,16 +421,16 @@ func (p *Postgres) SaveLapWear(ctx context.Context, sessionID string, carID int,
 		return err
 	}
 	_, err = p.pool.Exec(ctx, `
-INSERT INTO wear_laps (session_id, car_id, vehicle_name, lap, coverage, loss) VALUES ($1,$2,$3,$4,$5,$6)
-ON CONFLICT (session_id, car_id, vehicle_name, lap) DO UPDATE SET coverage = EXCLUDED.coverage, loss = EXCLUDED.loss`,
-		sessionID, carID, vehicleName, w.Lap, w.Coverage, loss)
+INSERT INTO wear_laps (session_id, car_id, vehicle_name, lap, coverage, loss, team_id) VALUES ($1,$2,$3,$4,$5,$6,$7)
+ON CONFLICT (team_id, session_id, car_id, vehicle_name, lap) DO UPDATE SET coverage = EXCLUDED.coverage, loss = EXCLUDED.loss`,
+		sessionID, carID, vehicleName, w.Lap, w.Coverage, loss, p.team)
 	return err
 }
 
 func (p *Postgres) LapWears(ctx context.Context, sessionID string, carID int, vehicleName string) ([]wear.LapWear, error) {
 	rows, err := p.pool.Query(ctx, `
-SELECT lap, coverage, loss FROM wear_laps WHERE session_id = $1 AND car_id = $2 AND vehicle_name = $3 ORDER BY lap`,
-		sessionID, carID, vehicleName)
+SELECT lap, coverage, loss FROM wear_laps WHERE team_id = $4 AND session_id = $1 AND car_id = $2 AND vehicle_name = $3 ORDER BY lap`,
+		sessionID, carID, vehicleName, p.team)
 	if err != nil {
 		return nil, err
 	}
@@ -429,13 +457,13 @@ func (p *Postgres) AddStopped(ctx context.Context, sessionID string, carID int, 
 	_, err := p.pool.Exec(ctx, `
 UPDATE stops SET stopped = stopped + $5 - $4, work = work + $6, fuel_time = fuel_time + $7
 WHERE id = (SELECT id FROM stops
-            WHERE session_id = $1 AND car_id = $2 AND vehicle_name = $3 AND entry_et <= $4
-            ORDER BY entry_et DESC LIMIT 1)`, sessionID, carID, vehicleName, st.From, st.To, st.Work, st.FuelTime)
+            WHERE team_id = $8 AND session_id = $1 AND car_id = $2 AND vehicle_name = $3 AND entry_et <= $4
+            ORDER BY entry_et DESC LIMIT 1)`, sessionID, carID, vehicleName, st.From, st.To, st.Work, st.FuelTime, p.team)
 	return err
 }
 
 func (p *Postgres) PitSetups(ctx context.Context, car string) ([]PitSetup, error) {
-	rows, err := p.pool.Query(ctx, `SELECT car, name, steps FROM pit_setups WHERE car = $1 ORDER BY seq`, car)
+	rows, err := p.pool.Query(ctx, `SELECT car, name, steps FROM pit_setups WHERE team_id = $2 AND car = $1 ORDER BY seq`, car, p.team)
 	if err != nil {
 		return nil, err
 	}
@@ -461,40 +489,40 @@ func (p *Postgres) SavePitSetup(ctx context.Context, s PitSetup) error {
 		return err
 	}
 	_, err = p.pool.Exec(ctx, `
-INSERT INTO pit_setups (car, name, steps) VALUES ($1,$2,$3)
-ON CONFLICT (car, name) DO UPDATE SET steps = EXCLUDED.steps`, s.Car, s.Name, steps)
+INSERT INTO pit_setups (car, name, steps, team_id) VALUES ($1,$2,$3,$4)
+ON CONFLICT (team_id, car, name) DO UPDATE SET steps = EXCLUDED.steps`, s.Car, s.Name, steps, p.team)
 	return err
 }
 
 func (p *Postgres) DeletePitSetup(ctx context.Context, car, name string) error {
-	_, err := p.pool.Exec(ctx, `DELETE FROM pit_setups WHERE car = $1 AND name = $2`, car, name)
+	_, err := p.pool.Exec(ctx, `DELETE FROM pit_setups WHERE team_id = $3 AND car = $1 AND name = $2`, car, name, p.team)
 	return err
 }
 
 func (p *Postgres) TouchSession(ctx context.Context, s SessionInfo) error {
 	_, err := p.pool.Exec(ctx, `
-INSERT INTO sessions (session_id, track, session_type, car, car_id, started_at, last_seen, last_et)
-VALUES ($1,$2,$3,$4,$7,$5,$5,$6)
-ON CONFLICT (session_id) DO UPDATE SET
+INSERT INTO sessions (session_id, track, session_type, car, car_id, started_at, last_seen, last_et, team_id)
+VALUES ($1,$2,$3,$4,$7,$5,$5,$6,$8)
+ON CONFLICT (team_id, session_id) DO UPDATE SET
     track = COALESCE(NULLIF(EXCLUDED.track, ''), sessions.track),
     session_type = COALESCE(NULLIF(EXCLUDED.session_type, ''), sessions.session_type),
     car = COALESCE(NULLIF(EXCLUDED.car, ''), sessions.car),
     car_id = CASE WHEN EXCLUDED.car_id >= 0 THEN EXCLUDED.car_id ELSE sessions.car_id END,
     last_seen = EXCLUDED.last_seen,
     last_et = EXCLUDED.last_et`,
-		s.SessionID, s.Track, s.SessionType, s.Car, s.LastSeen, s.LastET, s.CarID)
+		s.SessionID, s.Track, s.SessionType, s.Car, s.LastSeen, s.LastET, s.CarID, p.team)
 	return err
 }
 
 func (p *Postgres) Sessions(ctx context.Context) ([]SessionSummary, error) {
 	rows, err := p.pool.Query(ctx, `
 SELECT s.session_id, s.track, s.session_type, s.car, s.car_id, s.started_at, s.last_seen, s.last_et,
-  (SELECT count(*) FROM laps l WHERE l.session_id = s.session_id AND l.vehicle_name = s.car AND (s.car_id < 0 OR l.car_id = s.car_id)),
-  (SELECT count(*) FROM stops t WHERE t.session_id = s.session_id AND t.vehicle_name = s.car AND (s.car_id < 0 OR t.car_id = s.car_id)),
-  (SELECT count(*) FROM lap_conditions c WHERE c.session_id = s.session_id),
-  (SELECT count(*) FROM lap_conditions c WHERE c.session_id = s.session_id AND c.control = 1),
-  (SELECT count(*) FROM lap_conditions c WHERE c.session_id = s.session_id AND c.control = 0)
-FROM sessions s ORDER BY s.last_seen DESC`)
+  (SELECT count(*) FROM laps l WHERE l.team_id = s.team_id AND l.session_id = s.session_id AND l.vehicle_name = s.car AND (s.car_id < 0 OR l.car_id = s.car_id)),
+  (SELECT count(*) FROM stops t WHERE t.team_id = s.team_id AND t.session_id = s.session_id AND t.vehicle_name = s.car AND (s.car_id < 0 OR t.car_id = s.car_id)),
+  (SELECT count(*) FROM lap_conditions c WHERE c.team_id = s.team_id AND c.session_id = s.session_id),
+  (SELECT count(*) FROM lap_conditions c WHERE c.team_id = s.team_id AND c.session_id = s.session_id AND c.control = 1),
+  (SELECT count(*) FROM lap_conditions c WHERE c.team_id = s.team_id AND c.session_id = s.session_id AND c.control = 0)
+FROM sessions s WHERE s.team_id = $1 ORDER BY s.last_seen DESC`, p.team)
 	if err != nil {
 		return nil, err
 	}
@@ -521,15 +549,15 @@ func (p *Postgres) SaveLapConditions(ctx context.Context, c LapConditions) error
 	}
 	_, err := p.pool.Exec(ctx, `
 INSERT INTO lap_conditions (session_id, car_id, vehicle_name, lap, et, control, ambient, track, rain, wetness,
-  surface, inner_temp, pressure, brake, water, oil, compound_front, compound_rear)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-ON CONFLICT (session_id, car_id, vehicle_name, lap) DO UPDATE SET
+  surface, inner_temp, pressure, brake, water, oil, compound_front, compound_rear, team_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+ON CONFLICT (team_id, session_id, car_id, vehicle_name, lap) DO UPDATE SET
   et = EXCLUDED.et, control = EXCLUDED.control, ambient = EXCLUDED.ambient, track = EXCLUDED.track,
   rain = EXCLUDED.rain, wetness = EXCLUDED.wetness, surface = EXCLUDED.surface, inner_temp = EXCLUDED.inner_temp,
   pressure = EXCLUDED.pressure, brake = EXCLUDED.brake, water = EXCLUDED.water, oil = EXCLUDED.oil,
   compound_front = EXCLUDED.compound_front, compound_rear = EXCLUDED.compound_rear`,
 		c.SessionID, c.CarID, c.VehicleName, c.Lap, c.ET, c.Control, c.Ambient, c.Track, c.Rain, c.Wetness,
-		arr(c.Surface), arr(c.Inner), arr(c.Pressure), arr(c.Brake), c.Water, c.Oil, c.CompoundFront, c.CompoundRear)
+		arr(c.Surface), arr(c.Inner), arr(c.Pressure), arr(c.Brake), c.Water, c.Oil, c.CompoundFront, c.CompoundRear, p.team)
 	return err
 }
 
@@ -537,7 +565,7 @@ func (p *Postgres) LapConditions(ctx context.Context, sessionID string) ([]LapCo
 	rows, err := p.pool.Query(ctx, `
 SELECT car_id, vehicle_name, lap, et, control, ambient, track, rain, wetness, surface, inner_temp, pressure, brake,
   water, oil, compound_front, compound_rear
-FROM lap_conditions WHERE session_id = $1 ORDER BY car_id, lap`, sessionID)
+FROM lap_conditions WHERE team_id = $2 AND session_id = $1 ORDER BY car_id, lap`, sessionID, p.team)
 	if err != nil {
 		return nil, err
 	}
@@ -569,17 +597,17 @@ FROM lap_conditions WHERE session_id = $1 ORDER BY car_id, lap`, sessionID)
 
 func (p *Postgres) SaveWeatherPoint(ctx context.Context, sessionID string, w WeatherPoint) error {
 	_, err := p.pool.Exec(ctx, `
-INSERT INTO weather_points (session_id, et, ambient, track, rain, wetness) VALUES ($1,$2,$3,$4,$5,$6)
-ON CONFLICT (session_id, et) DO UPDATE SET ambient = EXCLUDED.ambient, track = EXCLUDED.track,
-  rain = EXCLUDED.rain, wetness = EXCLUDED.wetness`, sessionID, w.ET, w.Ambient, w.Track, w.Rain, w.Wetness)
+INSERT INTO weather_points (session_id, et, ambient, track, rain, wetness, team_id) VALUES ($1,$2,$3,$4,$5,$6,$7)
+ON CONFLICT (team_id, session_id, et) DO UPDATE SET ambient = EXCLUDED.ambient, track = EXCLUDED.track,
+  rain = EXCLUDED.rain, wetness = EXCLUDED.wetness`, sessionID, w.ET, w.Ambient, w.Track, w.Rain, w.Wetness, p.team)
 	return err
 }
 
 func (p *Postgres) WeatherPoints(ctx context.Context, sessionID string, limit int) ([]WeatherPoint, error) {
 	rows, err := p.pool.Query(ctx, `
 SELECT et, ambient, track, rain, wetness FROM (
-  SELECT et, ambient, track, rain, wetness FROM weather_points WHERE session_id = $1 ORDER BY et DESC LIMIT $2
-) newest ORDER BY et`, sessionID, limit)
+  SELECT et, ambient, track, rain, wetness FROM weather_points WHERE team_id = $3 AND session_id = $1 ORDER BY et DESC LIMIT $2
+) newest ORDER BY et`, sessionID, limit, p.team)
 	if err != nil {
 		return nil, err
 	}
@@ -621,4 +649,165 @@ func (p *Postgres) SavePitLane(ctx context.Context, l pitlane.Lane) error {
 INSERT INTO track_pits (track, data) VALUES ($1,$2)
 ON CONFLICT (track) DO UPDATE SET data = EXCLUDED.data`, l.Track, data)
 	return err
+}
+
+func (p *Postgres) TeamByName(ctx context.Context, name string) (Team, bool, error) {
+	var t Team
+	err := p.pool.QueryRow(ctx, `SELECT id, name FROM teams WHERE name = $1`, name).Scan(&t.ID, &t.Name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Team{}, false, nil
+	}
+	return t, err == nil, err
+}
+
+// uniqueViolation is the SQLSTATE of a duplicate key.
+const uniqueViolation = "23505"
+
+func (p *Postgres) CreateTeam(ctx context.Context, name string) (Team, error) {
+	t := Team{Name: name}
+	err := p.pool.QueryRow(ctx, `INSERT INTO teams (name) VALUES ($1) RETURNING id`, name).Scan(&t.ID)
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == uniqueViolation {
+		return Team{}, ErrExists
+	}
+	return t, err
+}
+
+func (p *Postgres) CreateAgent(ctx context.Context, name string, teamID int64, tokenHash []byte) (Agent, error) {
+	a := Agent{Name: name, TeamID: teamID}
+	err := p.pool.QueryRow(ctx, `INSERT INTO agents (name, token_hash, team_id) VALUES ($1,$2,$3) RETURNING id`,
+		name, tokenHash, teamID).Scan(&a.ID)
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == uniqueViolation {
+		return Agent{}, ErrExists
+	}
+	if errors.As(err, &pe) && pe.Code == foreignKeyViolation {
+		return Agent{}, ErrNoTeam
+	}
+	return a, err
+}
+
+func (p *Postgres) RevokeAgent(ctx context.Context, id int64) error {
+	_, err := p.pool.Exec(ctx, `UPDATE agents SET revoked = true WHERE id = $1`, id)
+	return err
+}
+
+func (p *Postgres) AgentByTokenHash(ctx context.Context, hash []byte) (Agent, bool, error) {
+	var a Agent
+	err := p.pool.QueryRow(ctx, `SELECT id, name, team_id, revoked, last_seen FROM agents WHERE token_hash = $1`, hash).
+		Scan(&a.ID, &a.Name, &a.TeamID, &a.Revoked, &a.LastSeen)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Agent{}, false, nil
+	}
+	return a, err == nil, err
+}
+
+func (p *Postgres) TouchAgent(ctx context.Context, id int64) error {
+	_, err := p.pool.Exec(ctx, `UPDATE agents SET last_seen = now() WHERE id = $1`, id)
+	return err
+}
+
+func (p *Postgres) Teams(ctx context.Context) ([]Team, error) {
+	rows, err := p.pool.Query(ctx, `SELECT id, name FROM teams ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Team{}
+	for rows.Next() {
+		var t Team
+		if err := rows.Scan(&t.ID, &t.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+const memberSelect = `SELECT m.email, m.team_id, t.name, m.is_admin FROM team_members m JOIN teams t ON t.id = m.team_id`
+
+func (p *Postgres) MemberByEmail(ctx context.Context, email string) (Member, bool, error) {
+	var v Member
+	err := p.pool.QueryRow(ctx, memberSelect+` WHERE m.email = $1`, email).Scan(&v.Email, &v.TeamID, &v.Team, &v.IsAdmin)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Member{}, false, nil
+	}
+	return v, err == nil, err
+}
+
+func (p *Postgres) Members(ctx context.Context) ([]Member, error) {
+	rows, err := p.pool.Query(ctx, memberSelect+` ORDER BY m.email`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Member{}
+	for rows.Next() {
+		var v Member
+		if err := rows.Scan(&v.Email, &v.TeamID, &v.Team, &v.IsAdmin); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// foreignKeyViolation is the SQLSTATE of a missing referenced row.
+const foreignKeyViolation = "23503"
+
+func (p *Postgres) SetMember(ctx context.Context, v Member) error {
+	_, err := p.pool.Exec(ctx, `
+INSERT INTO team_members (email, team_id, is_admin) VALUES ($1,$2,$3)
+ON CONFLICT (email) DO UPDATE SET team_id = EXCLUDED.team_id, is_admin = EXCLUDED.is_admin`,
+		v.Email, v.TeamID, v.IsAdmin)
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == foreignKeyViolation {
+		return ErrNoTeam
+	}
+	return err
+}
+
+func (p *Postgres) DeleteMember(ctx context.Context, email string) error {
+	_, err := p.pool.Exec(ctx, `DELETE FROM team_members WHERE email = $1`, email)
+	return err
+}
+
+func (p *Postgres) Agents(ctx context.Context) ([]Agent, error) {
+	rows, err := p.pool.Query(ctx, `SELECT id, name, team_id, revoked, last_seen FROM agents ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Agent{}
+	for rows.Next() {
+		var a Agent
+		if err := rows.Scan(&a.ID, &a.Name, &a.TeamID, &a.Revoked, &a.LastSeen); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) AddAudit(ctx context.Context, e AuditEntry) error {
+	_, err := p.pool.Exec(ctx, `INSERT INTO audit_log (ts, email, team, method, path) VALUES ($1,$2,$3,$4,$5)`,
+		e.TS, e.Email, e.Team, e.Method, e.Path)
+	return err
+}
+
+func (p *Postgres) Audit(ctx context.Context, limit int) ([]AuditEntry, error) {
+	rows, err := p.pool.Query(ctx, `SELECT ts, email, team, method, path FROM audit_log ORDER BY ts DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		if err := rows.Scan(&e.TS, &e.Email, &e.Team, &e.Method, &e.Path); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }

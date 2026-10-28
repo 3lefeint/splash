@@ -8,7 +8,11 @@ import (
 )
 
 func (a *API) getSessions(w http.ResponseWriter, r *http.Request) {
-	list, err := a.Store.Sessions(r.Context())
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
+	list, err := rt.Store.Sessions(r.Context())
 	if err != nil {
 		serverError(w, err)
 		return
@@ -47,12 +51,16 @@ func nth(v []float64, i int) string {
 func bs(b bool) string { return strconv.FormatBool(b) }
 
 func (a *API) exportSession(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
 	id, kind := r.PathValue("id"), r.URL.Query().Get("kind")
 	ctx := r.Context()
 	var out csvRows
 	switch kind {
 	case "laps":
-		laps, err := a.Store.Laps(ctx, id)
+		laps, err := rt.Store.Laps(ctx, id)
 		if err != nil {
 			serverError(w, err)
 			return
@@ -65,7 +73,7 @@ func (a *API) exportSession(w http.ResponseWriter, r *http.Request) {
 				nth(l.Wear, 0), nth(l.Wear, 1), nth(l.Wear, 2), nth(l.Wear, 3), bs(l.FCY), bs(l.InLap), bs(l.OutLap)})
 		}
 	case "stops":
-		stops, err := a.Store.Stops(ctx, id)
+		stops, err := rt.Store.Stops(ctx, id)
 		if err != nil {
 			serverError(w, err)
 			return
@@ -77,7 +85,7 @@ func (a *API) exportSession(w http.ResponseWriter, r *http.Request) {
 				fp(s.FuelAdded), bs(s.TyresChanged), bs(s.DriverSwap), ff(s.Stopped), ff(s.Work), ff(s.FuelTime)})
 		}
 	case "conditions":
-		list, err := a.Store.LapConditions(ctx, id)
+		list, err := rt.Store.LapConditions(ctx, id)
 		if err != nil {
 			serverError(w, err)
 			return

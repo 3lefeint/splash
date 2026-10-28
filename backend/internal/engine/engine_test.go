@@ -149,8 +149,8 @@ func TestStintPlanFromStops(t *testing.T) {
 		t.Fatalf("st=%+v err=%v", st, err)
 	}
 	p := st.StintPlan
-	// Refuelling (90-3)/3 = 29 s runs parallel to tyres + swap = 15 s: 20 + 29.
-	if !near(p.PitLoss, 49) || len(p.Entries) != 3 {
+	// The service runs in sequence, also with an old stored parallel value: 20 + refuelling (90-3)/3 = 29 + tyres 10 + swap 5.
+	if !near(p.PitLoss, 64) || len(p.Entries) != 3 {
 		t.Fatalf("plan=%+v", p)
 	}
 	e := p.Entries
@@ -162,7 +162,7 @@ func TestStintPlanFromStops(t *testing.T) {
 	}
 	// Same driver b: no swap. The time left (4551 s) exceeds one tank (87 l / 3 l * 100 s = 2900 s),
 	// so the stint is capped and the rest shows up as shortfall.
-	if e[2].DriverSwap || !near(e[2].Start, e[1].End+49) || !near(e[2].End-e[2].Start, 2900) || !near(p.Shortfall, 10000-e[2].Start-2900) {
+	if e[2].DriverSwap || !near(e[2].Start, e[1].End+64) || !near(e[2].End-e[2].Start, 2900) || !near(p.Shortfall, 10000-e[2].Start-2900) {
 		t.Fatalf("stint 3: %+v shortfall=%v", e[2], p.Shortfall)
 	}
 	if !near(p.CurrentDeviation, e[1].End-(3040+3000)) {

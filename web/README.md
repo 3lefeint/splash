@@ -22,6 +22,17 @@ Views (hash routes):
 - **Rest** (`#/rest`): for a resting driver: countdown to the own next stint, the time to be online as spotter and the
   next own stints.
 
+If the stream drops, the page reconnects by itself with a growing pause (1 s doubling to 30 s, with jitter) and keeps
+showing the last state, marked "Reconnecting". The backend's keep-alive pings let it notice a stream that went silent
+without an error. When the reconnect finds the login expired (HTTP 401 or a redirect to the Access login) it stops and
+offers a button to log in again; an account without a team gets a message instead. Nothing is reloaded otherwise, so
+local UI state stays.
+
+Yellow flags: the sector flag only says that there is a yellow; the page shows where to be careful. Two settings (kept
+in the browser, independent of each other) switch the alert line ("Yellow in 340 m, before <corner>", the nearest
+probable cause ahead, with the count of the others, or "Yellow, cause unknown"; also the full course yellow) and the
+markers of the probable causes on the map and in the rivals list. Causes behind your car are only on the map.
+
 The last ready state is kept in the browser, so a reload without a backend shows the last known state. The service
 worker caches the app and the last loaded stint plan (network first); the live stream is never cached. Texts are in
 German or English (`src/lib/i18n.ts`), the choice is stored per browser.

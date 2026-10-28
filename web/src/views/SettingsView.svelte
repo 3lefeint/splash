@@ -6,12 +6,16 @@
   import { live } from '../lib/store';
   import type { OverrideKey, Params } from '../lib/types';
 
+  /** Seconds a tyre change takes unless a value is stored; the backend uses the same default. */
+  const DEFAULT_TYRE_CHANGE = 17;
+
   const track = $derived(live.state?.track ?? '');
   const car = $derived(live.state?.car?.vehicle_name ?? '');
 
   const blank = (track: string, car: string): Params => ({
-    track, car, pit_through_green: 0, pit_through_fcy: 0, refuel_rate: 0, tyre_change: 0, driver_swap: 0,
-    parallel_service: false, fuel_effect: 0, deg_per_lap: 0, save_cost: 0, reserve: 3,
+    track, car, pit_through_green: 0, pit_through_fcy: 0, refuel_rate: 0, tyre_change: DEFAULT_TYRE_CHANGE, driver_swap: 0,
+    fuel_effect: 0, deg_per_lap: 0, save_cost: 0, reserve: 3,
+    fit_min_laps: 5, fit_slow_percent: 8, fit_skip_fcy: true, fit_skip_wet: true,
   });
 
   let form = $state<Params>(blank('', ''));
@@ -66,11 +70,11 @@
     }
   }
 
-  const fields: { key: keyof Params; label: Parameters<typeof t>[0]; step: number }[] = [
-    { key: 'pit_through_green', label: 'set.pitThroughGreen', step: 0.1 },
-    { key: 'pit_through_fcy', label: 'set.pitThroughFcy', step: 0.1 },
+  const fields: { key: keyof Params; label: Parameters<typeof t>[0]; step: number; hint?: Parameters<typeof t>[0]; placeholder?: string }[] = [
+    { key: 'pit_through_green', label: 'set.pitThroughGreen', step: 0.1, hint: 'set.pitThroughHelp' },
+    { key: 'pit_through_fcy', label: 'set.pitThroughFcy', step: 0.1, hint: 'set.pitThroughFcyHelp' },
     { key: 'refuel_rate', label: 'set.refuelRate', step: 0.05 },
-    { key: 'tyre_change', label: 'set.tyreChange', step: 0.1 },
+    { key: 'tyre_change', label: 'set.tyreChange', step: 0.1, hint: 'set.tyreChangeHint', placeholder: String(DEFAULT_TYRE_CHANGE) },
     { key: 'driver_swap', label: 'set.driverSwap', step: 0.1 },
     { key: 'fuel_effect', label: 'set.fuelEffect', step: 0.001 },
     { key: 'deg_per_lap', label: 'set.degPerLap', step: 0.001 },
@@ -102,11 +106,24 @@
       <div class="fields">
         {#each fields as f (f.key)}
           <label>{t(f.label)}
-            <input type="number" min="0" step={f.step} bind:value={form[f.key] as number} />
+            <input type="number" min="0" step={f.step} placeholder={f.placeholder} bind:value={form[f.key] as number} />
+            {#if f.hint}<span class="help">{t(f.hint, { s: DEFAULT_TYRE_CHANGE })}</span>{/if}
           </label>
         {/each}
       </div>
-      <label class="check"><input type="checkbox" bind:checked={form.parallel_service} />{t('set.parallel')}</label>
+      <h3>{t('set.fitTitle')}</h3>
+      <div class="fields">
+        <label>{t('set.fitMinLaps')}
+          <input type="number" min="3" max="20" step="1" bind:value={form.fit_min_laps} />
+          <span class="help">{t('set.fitMinLapsHelp')}</span>
+        </label>
+        <label>{t('set.fitSlowPercent')}
+          <input type="number" min="2" max="30" step="0.5" bind:value={form.fit_slow_percent} />
+          <span class="help">{t('set.fitSlowPercentHelp')}</span>
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" bind:checked={form.fit_skip_fcy} /><span>{t('set.fitSkipFcy')}<br /><span class="help">{t('set.fitSkipFcyHelp')}</span></span></label>
+      <label class="check"><input type="checkbox" bind:checked={form.fit_skip_wet} /><span>{t('set.fitSkipWet')}<br /><span class="help">{t('set.fitSkipWetHelp')}</span></span></label>
       <button class="primary" type="submit">{t('set.save')}</button>
     </form>
   {/if}
@@ -146,6 +163,19 @@
     {t('set.wearInverted')}
   </label>
   <p class="muted">{t('set.wearHelp')}</p>
+</section>
+
+<section>
+  <h2>{t('set.yellow')}</h2>
+  <label class="check">
+    <input type="checkbox" bind:checked={settings.yellowAhead} onchange={() => settings.save()} />
+    {t('set.yellowAhead')}
+  </label>
+  <label class="check">
+    <input type="checkbox" bind:checked={settings.yellowMarkers} onchange={() => settings.save()} />
+    {t('set.yellowMarkers')}
+  </label>
+  <p class="muted">{t('set.yellowHelp')}</p>
 </section>
 
 <section>
@@ -209,6 +239,8 @@
   label { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; color: var(--muted); }
   label.check { flex-direction: row; align-items: center; gap: 10px; color: var(--text); margin: 10px 0; }
   form button { margin-top: 8px; }
+  h3 { font-size: 0.9rem; margin: 16px 0 0; }
+  .help { font-size: 0.78rem; color: var(--muted); }
   .override { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
   .olabel { flex: 1 1 220px; display: flex; flex-direction: column; }
   .override input { width: 8rem; }
