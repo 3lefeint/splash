@@ -103,12 +103,18 @@ export const FALLBACK_RANGE = { low: SLICK_WINDOW.low, high: SLICK_WINDOW.high }
 /** Colours run from blue to red over this many degrees outside the range. */
 const MARGIN = 20;
 
-export const windowOf = (low: number, high: number): TempWindow => ({
-  cold: low - MARGIN,
+export const windowOf = (low: number, high: number, margin = MARGIN): TempWindow => ({
+  cold: low - margin,
   low,
   high,
-  hot: high + MARGIN,
+  hot: high + margin,
 });
+
+/** Brake discs run over hundreds of degrees, so the colours blend over a wider stretch than on a tyre. */
+export const BRAKE_MARGIN = 150;
+
+/** Starting window of the brake discs; the right one depends on the car and the brakes. */
+export const DEFAULT_BRAKE = { low: 300, high: 700 };
 
 /** The range for a compound name: the first named range it contains, else the fallback. */
 export function rangeFor(

@@ -1,6 +1,6 @@
 import { translate, type Key, type Lang } from './i18n';
 import { readJson, safeStorage, writeJson } from './storage';
-import { DEFAULT_RANGES, FALLBACK_RANGE, type TyreRange } from './conditions';
+import { DEFAULT_BRAKE, DEFAULT_RANGES, FALLBACK_RANGE, type TyreRange } from './conditions';
 import type { Target } from './overlays';
 import type { Overlay, Wheel } from './wear';
 import { migrateYellow } from './yellow';
@@ -16,6 +16,7 @@ interface Saved {
   mapWheel: Wheel;
   tyreRanges: TyreRange[];
   tyreFallback: { low: number; high: number };
+  brakeRange: { low: number; high: number };
   soundMode: SoundMode;
   voiceName: string;
   mapTarget: Target;
@@ -59,6 +60,8 @@ class Settings {
   /** Working temperature ranges of the tyres by compound name, and the range for any other compound. */
   tyreRanges = $state<TyreRange[]>(DEFAULT_RANGES.map((r) => ({ ...r })));
   tyreFallback = $state({ ...FALLBACK_RANGE });
+  /** Working temperature of the brake discs, the same for every car. */
+  brakeRange = $state({ ...DEFAULT_BRAKE });
   /** How announcements sound: not at all, a beep pattern by urgency, or a beep and the text spoken. */
   soundMode = $state<SoundMode>('off');
   /** The speech voice chosen by name; empty picks one that speaks the interface language. */
@@ -92,6 +95,8 @@ class Settings {
     this.tyreRanges = ranges(saved?.tyreRanges) ?? this.tyreRanges;
     const fb = saved?.tyreFallback;
     if (fb && num(fb.low) && num(fb.high)) this.tyreFallback = { low: fb.low, high: fb.high };
+    const br = saved?.brakeRange;
+    if (br && num(br.low) && num(br.high)) this.brakeRange = { low: br.low, high: br.high };
     if (['all', '0', '1', '2', '3'].includes(saved?.mapWheel as string)) this.mapWheel = saved!.mapWheel as Wheel;
   }
 
@@ -107,6 +112,7 @@ class Settings {
       mapWheel: this.mapWheel,
       tyreRanges: this.tyreRanges.map((r) => ({ ...r })),
       tyreFallback: { ...this.tyreFallback },
+      brakeRange: { ...this.brakeRange },
       soundMode: this.soundMode,
       voiceName: this.voiceName,
       mapTarget: this.mapTarget,
@@ -121,6 +127,7 @@ class Settings {
   resetTyreRanges(): void {
     this.tyreRanges = DEFAULT_RANGES.map((r) => ({ ...r }));
     this.tyreFallback = { ...FALLBACK_RANGE };
+    this.brakeRange = { ...DEFAULT_BRAKE };
     this.save();
   }
 

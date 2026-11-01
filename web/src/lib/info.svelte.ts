@@ -1,4 +1,4 @@
-import { getContext, setContext } from 'svelte';
+import { getContext, setContext, type Component } from 'svelte';
 
 const KEY = Symbol('tile-info');
 
@@ -6,6 +6,8 @@ const KEY = Symbol('tile-info');
 export class TileInfo {
   private texts = $state<Record<number, string | null>>({});
   private next = 0;
+  /** A drawing shown above the texts in the popover. */
+  figure = $state<Component | null>(null);
 
   reserve(): number {
     return this.next++;
@@ -44,4 +46,11 @@ export function tileInfo(text: () => string | null): boolean {
     return () => info.set(id, null);
   });
   return true;
+}
+
+/** Called by content in a tile: ``figure`` is drawn in the popover behind the "i" of the tile. */
+export function tileFigure(figure: Component): void {
+  const info = getContext<TileInfo | undefined>(KEY);
+  if (!info) return;
+  info.figure = figure;
 }
