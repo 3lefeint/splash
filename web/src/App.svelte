@@ -70,7 +70,7 @@
       </button>
     {/if}
     <nav aria-label="Main">
-    {#each visibleRoutes(identity.isAdmin) as r}
+    {#each visibleRoutes() as r}
       <a href="#/{r}" class:active={router.route === r} aria-current={router.route === r ? 'page' : undefined}>
         {t(`nav.${r}` as 'nav.plan')}
       </a>

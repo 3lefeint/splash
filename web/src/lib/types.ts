@@ -393,6 +393,12 @@ export interface AdminMember {
   team_id: number;
   team?: string;
   is_admin: boolean;
+  name: string;
+  /** Short name, the name of the member's agent; empty until the administrator sets it. */
+  short: string;
+  cf_client_id: string;
+  /** There is a Cloudflare secret; it is never sent back. */
+  has_cf_secret: boolean;
 }
 
 export interface AdminAgent {
@@ -405,9 +411,14 @@ export interface AdminAgent {
   last_seen: string | null;
 }
 
-/** The reply to creating an agent; the token is shown only this once. */
-export interface CreatedAgent extends AdminAgent {
-  token: string;
+/** The agent of the signed-in member and whether its configuration can be downloaded. */
+export interface MyAgent {
+  name: string;
+  short: string;
+  agent: AdminAgent | null;
+  can_download: boolean;
+  /** Why not: no_member, no_short or no_cloudflare. */
+  reason?: 'no_member' | 'no_short' | 'no_cloudflare' | string;
 }
 
 /** An agent of the team as the picker lists it. */
