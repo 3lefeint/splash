@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  adminCreateAgent, adminDeleteMember, adminRevokeAgent, adminSetMember, ApiError, clearOverride, getMe, getParams, putPlan,
-  setOverride,
+  adminCreateAgent, adminDeleteMember, adminRevokeAgent, adminSetAgentEmail, adminSetMember, ApiError, clearOverride,
+  getMe, getParams, pitRequest, putPlan, setOverride, useAgent,
 } from './api';
 
 function respond(status: number, body?: unknown) {
@@ -46,11 +46,35 @@ describe('api', () => {
     expect(await getMe()).toMatchObject({ is_admin: true });
   });
   it('creates an agent and returns the token of the reply', async () => {
-    const f = respond(201, { id: 3, name: 'pc', team_id: 1, revoked: false, last_seen: null, token: 'tok' });
+    const f = respond(201, { id: 3, name: 'pc', team_id: 1, email: 'a@example.com', revoked: false, last_seen: null, token: 'tok' });
     vi.stubGlobal('fetch', f);
-    expect((await adminCreateAgent('pc', 1)).token).toBe('tok');
+    expect((await adminCreateAgent('pc', 1, 'a@example.com')).token).toBe('tok');
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
-    expect([url, init.method, init.body]).toEqual(['/api/admin/agents', 'POST', '{"name":"pc","team_id":1}']);
+    expect([url, init.method, init.body]).toEqual(['/api/admin/agents', 'POST', '{"name":"pc","team_id":1,"email":"a@example.com"}']);
+  });
+  it('ties an agent to a member and releases it with an empty address', async () => {
+    const f = respond(200, { id: 3, name: 'pc', team_id: 1, email: '', revoked: false, last_seen: null });
+    vi.stubGlobal('fetch', f);
+    await adminSetAgentEmail(3, '');
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect([url, init.method, init.body]).toEqual(['/api/admin/agents/3', 'PUT', '{"email":""}']);
+  });
+  it('adds the selected agent to overrides and pit commands, and nothing else', async () => {
+    const f = respond(200, {});
+    vi.stubGlobal('fetch', f);
+    useAgent(7);
+    try {
+      await setOverride('fuel', 10);
+      await clearOverride('fuel');
+      await pitRequest('box');
+      await putPlan([]);
+      const urls = f.mock.calls.map((c) => (c as unknown as [string])[0]);
+      expect(urls).toEqual(['/api/overrides/fuel?agent=7', '/api/overrides/fuel?agent=7', '/api/pit-request?name=box&agent=7', '/api/stint-plan']);
+    } finally {
+      useAgent(null);
+    }
+    await setOverride('fuel', 10);
+    expect((f.mock.calls.at(-1) as unknown as [string])[0]).toBe('/api/overrides/fuel');
   });
   it('escapes the address when a member is removed and calls the revoke route', async () => {
     const f = respond(204);
