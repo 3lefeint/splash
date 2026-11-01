@@ -168,6 +168,8 @@ type Registry struct {
 	Log *slog.Logger
 	// PingInterval and DeadAfter configure the keep-alive of the agent connections, see ingest.Server.
 	PingInterval, DeadAfter time.Duration
+	// MinAgentVersion is the oldest agent version that counts as up to date; empty marks no agent as outdated.
+	MinAgentVersion string
 
 	defaultID int64
 	mu        sync.Mutex
@@ -207,6 +209,7 @@ func (r *Registry) Get(id int64) *Runtime {
 func (r *Registry) build(id int64) *Runtime {
 	st := r.Dir.ForTeam(id)
 	cmds := commands.New()
+	cmds.MinVersion = r.MinAgentVersion
 	ing := ingest.New(st, nil, r.Log)
 	ing.PingInterval, ing.DeadAfter, ing.TeamID = r.PingInterval, r.DeadAfter, id
 	ing.Maps = ingest.NewMapRecorder(st, r.Log)

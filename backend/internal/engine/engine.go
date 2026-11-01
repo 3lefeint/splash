@@ -309,7 +309,7 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 		st.PitMenu = tel.PitMenu
 	}
 	if e.Commands != nil {
-		st.Command = e.Commands.Status()
+		st.Command = e.Commands.Status(e.AgentID)
 		st.Agents = e.Commands.Agents()
 	}
 	st.Weather = weatherState(sc.Weather, e.weatherHistory(ctx, snap.SessionID, snap.ScoringET, sc.Weather))
