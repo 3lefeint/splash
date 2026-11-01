@@ -51,6 +51,12 @@ type AuditEntry struct {
 // ErrExists is returned when a team name or a token hash is already taken.
 var ErrExists = errors.New("already exists")
 
+// ErrNoLap and ErrNoSession are returned when the lap or session to change does not exist.
+var (
+	ErrNoLap     = errors.New("unknown lap")
+	ErrNoSession = errors.New("unknown session")
+)
+
 // ErrNoCar is returned when a team car does not exist.
 var ErrNoCar = errors.New("unknown car")
 
@@ -114,8 +120,12 @@ type DB interface {
 type LapRecord struct {
 	SessionID string
 	// AgentID is the registered agent whose token delivered the lap; 0 when unknown (laps from before it was stored,
-	// the shared dev token).
+	// the shared dev token). The agent that delivered the fuel figures wins, as only the driven car has them.
 	AgentID int64
+	// ExcludedFlag is the lap's own choice: nil follows the session, true leaves the lap out of the models, false takes
+	// it in. Excluded is the result with the session taken into account.
+	ExcludedFlag *bool
+	Excluded     bool
 	wire.Lap
 }
 
@@ -193,6 +203,13 @@ type Store interface {
 	// SavePitSetup stores a setup, replacing one of the same car and name.
 	SavePitSetup(ctx context.Context, s PitSetup) error
 	DeletePitSetup(ctx context.Context, car, name string) error
+
+	// SetLapExcluded sets the own flag of a lap: true leaves it out of the models, false takes it in even if its session
+	// is left out, nil lets it follow the session. ErrNoLap when the lap does not exist.
+	SetLapExcluded(ctx context.Context, sessionID string, carID int, vehicleName string, lap int, excluded *bool) error
+	// SetSessionExcluded leaves a whole session out of the models, or takes it in again. Laps with a flag of their own
+	// keep it. ErrNoSession when the session does not exist.
+	SetSessionExcluded(ctx context.Context, sessionID string, excluded bool) error
 
 	// Cars lists the team cars with the vehicle names assigned to them.
 	Cars(ctx context.Context) ([]TeamCar, error)
@@ -299,11 +316,12 @@ type SessionInfo struct {
 // SessionSummary is a session with the amount of data stored for it.
 type SessionSummary struct {
 	SessionInfo
-	Laps       int `json:"laps"`        // laps of all cars
-	Stops      int `json:"stops"`       // pit stops of all cars
-	Conditions int `json:"conditions"`  // laps of the driven car with conditions
-	AILaps     int `json:"ai_laps"`     // of those, laps the AI drove
-	PlayerLaps int `json:"player_laps"` // of those, laps a person drove
+	Laps       int  `json:"laps"`        // laps of all cars
+	Stops      int  `json:"stops"`       // pit stops of all cars
+	Excluded   bool `json:"excluded"`    // the whole session is left out of the models
+	Conditions int  `json:"conditions"`  // laps of the driven car with conditions
+	AILaps     int  `json:"ai_laps"`     // of those, laps the AI drove
+	PlayerLaps int  `json:"player_laps"` // of those, laps a person drove
 }
 
 // LapConditions is what the driven car and the weather were like during one lap, averaged over the lap.

@@ -1,4 +1,4 @@
-import type { AdminAgent, AgentInfo, TeamCar, TeamCars, AdminMember, AdminTeam, CreatedAgent, Me, Corner, MapProgress, TrackInfo, SessionSummary, OverrideKey, Params, PitSetup, PlanRow, Step, TrackMap } from './types';
+import type { AdminAgent, AgentInfo, SessionLaps, TeamCar, TeamCars, AdminMember, AdminTeam, CreatedAgent, Me, Corner, MapProgress, TrackInfo, SessionSummary, OverrideKey, Params, PitSetup, PlanRow, Step, TrackMap } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -96,6 +96,12 @@ export async function getMapProgress(track: string): Promise<MapProgress | null>
 }
 
 export const getSessions = () => request<SessionSummary[]>('GET', '/api/sessions');
+export const getSessionLaps = (id: string) => request<SessionLaps>('GET', `/api/sessions/${encodeURIComponent(id)}/laps`);
+/** Leaves a lap out of the models (true), takes it in (false) or lets it follow its session (null). */
+export const setLapExcluded = (lap: { session_id: string; car_id: number; vehicle_name: string; lap: number }, excluded: boolean | null) =>
+  request<void>('PUT', '/api/laps/excluded', { ...lap, excluded });
+export const setSessionExcluded = (id: string, excluded: boolean) =>
+  request<void>('PUT', `/api/sessions/${encodeURIComponent(id)}/excluded`, { excluded });
 
 /** Address of a CSV export of a session: laps of all cars, pit stops or the conditions of the driven car per lap. */
 export const exportUrl = (sessionId: string, kind: 'laps' | 'stops' | 'conditions') =>

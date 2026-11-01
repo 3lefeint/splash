@@ -238,3 +238,30 @@ func TestTheEngineStateCarriesTheDefaultTyreChange(t *testing.T) {
 		t.Fatalf("explicit: %+v", st.Params)
 	}
 }
+
+// A lap a person left out counts for neither the fit, nor the fuel model, and is listed with the reason "manual".
+func TestLapsLeftOutByAPersonDoNotCount(t *testing.T) {
+	r := newRig()
+	ctx := context.Background()
+	for i := 1; i <= 5; i++ { // the minimum is 5 laps, so with one left out the model cannot be fitted and lists why
+		l := lapAt(i, 90+0.05*float64(i), 80-2*float64(i))
+		if i == 3 {
+			l.FuelEnd = f(*l.FuelStart - 9) // a lap that burnt far more than the others
+		}
+		r.st.SaveLap(ctx, sess, l, 0)
+	}
+	r.setLive(1000, 60, 6, vehicle(0, "me", "GT3", 1, 0))
+	before, _ := r.eng.Compute(ctx)
+	yes := true
+	r.st.SetLapExcluded(ctx, sess, 0, "me", 3, &yes)
+	after, _ := r.eng.Compute(ctx)
+	if !(*after.Car.FuelPerLap < *before.Car.FuelPerLap) || !near(*after.Car.FuelPerLap, 2) {
+		t.Fatalf("fuel per lap before %v after %v: the left-out lap must not feed the fuel model", *before.Car.FuelPerLap, *after.Car.FuelPerLap)
+	}
+	if got := reasons(after.Fit)[3]; got != "manual" {
+		t.Fatalf("reason %q, fit %+v", got, after.Fit)
+	}
+	if after.Fit.Laps != 4 {
+		t.Fatalf("fit laps %d, want 4", after.Fit.Laps)
+	}
+}

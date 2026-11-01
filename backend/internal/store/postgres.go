@@ -58,6 +58,7 @@ func (p *Postgres) SaveLap(ctx context.Context, sessionID string, l wire.Lap, ag
 			w[i] = &l.Wear[i]
 		}
 	}
+	hasFuel := l.FuelStart != nil || l.FuelEnd != nil
 	_, err := p.pool.Exec(ctx, `
 INSERT INTO laps (session_id, car_id, vehicle_name, lap, driver, lap_time, s1, s2, s3,
                   fuel_start, fuel_end, tyre_age, wear_fl, wear_fr, wear_rl, wear_rr, fcy, in_lap, out_lap, team_id, agent_id)
@@ -78,9 +79,9 @@ ON CONFLICT (team_id, session_id, car_id, vehicle_name, lap) DO UPDATE SET
     fcy        = laps.fcy OR EXCLUDED.fcy,
     in_lap     = laps.in_lap OR EXCLUDED.in_lap,
     out_lap    = laps.out_lap OR EXCLUDED.out_lap,
-    agent_id   = COALESCE(laps.agent_id, EXCLUDED.agent_id)`,
+    agent_id   = CASE WHEN $22::boolean THEN COALESCE(EXCLUDED.agent_id, laps.agent_id) ELSE COALESCE(laps.agent_id, EXCLUDED.agent_id) END`,
 		sessionID, l.CarID, l.VehicleName, l.Lap, l.Driver, l.LapTime, l.S1, l.S2, l.S3,
-		l.FuelStart, l.FuelEnd, l.TyreAge, w[0], w[1], w[2], w[3], l.FCY, l.InLap, l.OutLap, p.team, agentID)
+		l.FuelStart, l.FuelEnd, l.TyreAge, w[0], w[1], w[2], w[3], l.FCY, l.InLap, l.OutLap, p.team, agentID, hasFuel)
 	return err
 }
 
@@ -134,7 +135,7 @@ ON CONFLICT (team_id, agent_id, session_id) DO UPDATE SET last_seq = GREATEST(ag
 }
 
 func (p *Postgres) Laps(ctx context.Context, sessionID string) ([]LapRecord, error) {
-	rows, err := p.pool.Query(ctx, lapSelect+` WHERE team_id = $2 AND session_id = $1 ORDER BY car_id, lap`, sessionID, p.team)
+	rows, err := p.pool.Query(ctx, lapSelect+` WHERE l.team_id = $2 AND l.session_id = $1 ORDER BY l.car_id, l.lap`, sessionID, p.team)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +186,7 @@ func Connect(ctx context.Context, url string, maxConns int32, tracer pgx.QueryTr
 }
 
 func (p *Postgres) LapsOfCar(ctx context.Context, sessionID string, carID int, vehicleName string) ([]LapRecord, error) {
-	rows, err := p.pool.Query(ctx, lapSelect+` WHERE team_id = $4 AND session_id = $1 AND car_id = $2 AND vehicle_name = $3 ORDER BY lap`,
+	rows, err := p.pool.Query(ctx, lapSelect+` WHERE l.team_id = $4 AND l.session_id = $1 AND l.car_id = $2 AND l.vehicle_name = $3 ORDER BY l.lap`,
 		sessionID, carID, vehicleName, p.team)
 	if err != nil {
 		return nil, err
@@ -336,8 +337,10 @@ func scanParams(rows pgx.Rows) ([]Params, error) {
 	return out, rows.Err()
 }
 
-const lapSelect = `SELECT car_id, vehicle_name, lap, driver, lap_time, s1, s2, s3, fuel_start, fuel_end, tyre_age,
-       wear_fl, wear_fr, wear_rl, wear_rr, fcy, in_lap, out_lap, agent_id FROM laps`
+const lapSelect = `SELECT l.car_id, l.vehicle_name, l.lap, l.driver, l.lap_time, l.s1, l.s2, l.s3, l.fuel_start, l.fuel_end, l.tyre_age,
+       l.wear_fl, l.wear_fr, l.wear_rl, l.wear_rr, l.fcy, l.in_lap, l.out_lap, l.agent_id, l.excluded,
+       COALESCE(l.excluded, s.excluded, false)
+FROM laps l LEFT JOIN sessions s ON s.team_id = l.team_id AND s.session_id = l.session_id`
 
 func scanLaps(rows pgx.Rows, sessionID string) ([]LapRecord, error) {
 	defer rows.Close()
@@ -346,14 +349,17 @@ func scanLaps(rows pgx.Rows, sessionID string) ([]LapRecord, error) {
 		var l wire.Lap
 		var w [4]*float64
 		var agent *int64
+		var flag *bool
+		var excluded bool
 		if err := rows.Scan(&l.CarID, &l.VehicleName, &l.Lap, &l.Driver, &l.LapTime, &l.S1, &l.S2, &l.S3,
-			&l.FuelStart, &l.FuelEnd, &l.TyreAge, &w[0], &w[1], &w[2], &w[3], &l.FCY, &l.InLap, &l.OutLap, &agent); err != nil {
+			&l.FuelStart, &l.FuelEnd, &l.TyreAge, &w[0], &w[1], &w[2], &w[3], &l.FCY, &l.InLap, &l.OutLap, &agent, &flag,
+			&excluded); err != nil {
 			return nil, err
 		}
 		if w[0] != nil && w[1] != nil && w[2] != nil && w[3] != nil {
 			l.Wear = []float64{*w[0], *w[1], *w[2], *w[3]}
 		}
-		rec := LapRecord{SessionID: sessionID, Lap: l}
+		rec := LapRecord{SessionID: sessionID, Lap: l, ExcludedFlag: flag, Excluded: excluded}
 		if agent != nil {
 			rec.AgentID = *agent
 		}
@@ -582,6 +588,24 @@ func (p *Postgres) CreateCar(ctx context.Context, name string) (TeamCar, error) 
 	return c, err
 }
 
+func (p *Postgres) SetLapExcluded(ctx context.Context, sessionID string, carID int, vehicleName string, lap int, excluded *bool) error {
+	tag, err := p.pool.Exec(ctx, `UPDATE laps SET excluded = $6
+WHERE team_id = $1 AND session_id = $2 AND car_id = $3 AND vehicle_name = $4 AND lap = $5`,
+		p.team, sessionID, carID, vehicleName, lap, excluded)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNoLap
+	}
+	return err
+}
+
+func (p *Postgres) SetSessionExcluded(ctx context.Context, sessionID string, excluded bool) error {
+	tag, err := p.pool.Exec(ctx, `UPDATE sessions SET excluded = $3 WHERE team_id = $1 AND session_id = $2`, p.team, sessionID, excluded)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNoSession
+	}
+	return err
+}
+
 func (p *Postgres) DeleteCar(ctx context.Context, id int64) error {
 	tag, err := p.pool.Exec(ctx, `DELETE FROM team_cars WHERE team_id = $1 AND id = $2`, p.team, id)
 	if err == nil && tag.RowsAffected() == 0 {
@@ -644,7 +668,7 @@ ON CONFLICT (team_id, session_id) DO UPDATE SET
 
 func (p *Postgres) Sessions(ctx context.Context) ([]SessionSummary, error) {
 	rows, err := p.pool.Query(ctx, `
-SELECT s.session_id, s.track, s.session_type, s.car, s.car_id, s.started_at, s.last_seen, s.last_et,
+SELECT s.session_id, s.track, s.session_type, s.car, s.car_id, s.started_at, s.last_seen, s.last_et, s.excluded,
   (SELECT count(*) FROM laps l WHERE l.team_id = s.team_id AND l.session_id = s.session_id AND l.vehicle_name = s.car AND (s.car_id < 0 OR l.car_id = s.car_id)),
   (SELECT count(*) FROM stops t WHERE t.team_id = s.team_id AND t.session_id = s.session_id AND t.vehicle_name = s.car AND (s.car_id < 0 OR t.car_id = s.car_id)),
   (SELECT count(*) FROM lap_conditions c WHERE c.team_id = s.team_id AND c.session_id = s.session_id),
@@ -658,7 +682,7 @@ FROM sessions s WHERE s.team_id = $1 ORDER BY s.last_seen DESC`, p.team)
 	out := []SessionSummary{}
 	for rows.Next() {
 		var s SessionSummary
-		if err := rows.Scan(&s.SessionID, &s.Track, &s.SessionType, &s.Car, &s.CarID, &s.StartedAt, &s.LastSeen, &s.LastET,
+		if err := rows.Scan(&s.SessionID, &s.Track, &s.SessionType, &s.Car, &s.CarID, &s.StartedAt, &s.LastSeen, &s.LastET, &s.Excluded,
 			&s.Laps, &s.Stops, &s.Conditions, &s.AILaps, &s.PlayerLaps); err != nil {
 			return nil, err
 		}
