@@ -9,6 +9,7 @@
     onchange,
     onremove,
     removeLabel = '',
+    tools,
     rowHeight = 92,
     gap = 12,
     minWidth = 640,
@@ -20,6 +21,8 @@
     /** Edit mode shows a button on each tile that calls this. */
     onremove?: (id: string) => void;
     removeLabel?: string;
+    /** Edit mode shows these next to the remove button; the cover would otherwise block the tile's own. */
+    tools?: Snippet<[string]>;
     rowHeight?: number;
     gap?: number;
     /** Below this width the tiles are stacked in one column and cannot be moved. */
@@ -72,6 +75,7 @@
       {#if edit && !narrow}
         <div class="cover" onpointerdown={(e) => begin(e, item.id, 'move')} onpointermove={move} onpointerup={end}
           onpointercancel={end} role="presentation"></div>
+        {#if tools}<div class="tools">{@render tools(item.id)}</div>{/if}
         {#if onremove}
           <button class="remove" onclick={() => onremove(item.id)} aria-label={removeLabel} title={removeLabel}>×</button>
         {/if}
@@ -90,6 +94,7 @@
   .cell.dragging { z-index: 3; transition: none; opacity: 0.92; }
   .cover, .size { position: absolute; touch-action: none; }
   .cover { inset: 0; cursor: move; border-radius: var(--radius); outline: 2px dashed var(--accent); outline-offset: -2px; background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .tools { position: absolute; top: 6px; right: 40px; z-index: 3; }
   .remove { position: absolute; top: 6px; right: 6px; z-index: 3; width: 28px; height: 28px; padding: 0; line-height: 1; font-size: 1.1rem; border-radius: 50%; }
   .size { right: 0; bottom: 0; width: 30px; height: 30px; cursor: nwse-resize; z-index: 2; }
   .size::after { content: ''; position: absolute; right: 6px; bottom: 6px; width: 12px; height: 12px; border-right: 3px solid var(--accent); border-bottom: 3px solid var(--accent); border-radius: 0 0 4px 0; }

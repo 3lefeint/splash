@@ -79,6 +79,7 @@
 - Lap table in the sessions page: every session folds out into its laps with time, sectors, fuel use, tyre age and compound, temperatures, wetness, pressure, who drove (person, AI, remote) and notes; a box per lap and per session decides whether it counts for the models (the driver of the lap or an administrator may change it; a lap can be taken in inside a left-out session), filters for own laps and drivers; left-out laps are skipped by the fuel model, the lap time model and the tyre wear statistics
 - The fuel model and the lap time model learn from the laps of earlier sessions on the same track with the same team car, from the first lap of a session on: the driver's own laps first, the whole team's when they have too few; laps and sessions that were left out are skipped; the model panel says how many laps come from earlier sessions
 - Dashboard: while the layout is edited and no agent sends data, the tiles show invented example values, so they can be arranged without the game running
+- Dashboard: every tile has a gear with its text size (S, M, L) and switches for single lines, saved with the layout; the big numbers follow the size of the tile instead of the window
 
 ### Changed
 

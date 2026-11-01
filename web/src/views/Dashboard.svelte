@@ -9,6 +9,7 @@
   import PitSetups from '../components/PitSetups.svelte';
   import PitsPanel from '../components/PitsPanel.svelte';
   import Tile from '../components/Tile.svelte';
+  import TileGear from '../components/TileGear.svelte';
   import TrackMap from '../components/TrackMap.svelte';
   import TyreTemps from '../components/TyreTemps.svelte';
   import WeatherPanel from '../components/WeatherPanel.svelte';
@@ -78,13 +79,17 @@
     <button class="plus" onclick={() => setupsUi.create()} aria-label={t('setups.new')} title={t('setups.new')}>+</button>
   {/snippet}
 
-  <GridLayout items={dashboardLayout.visible} edit={dashboardLayout.edit} onchange={(i) => dashboardLayout.set(i)} onremove={(id) => dashboardLayout.hide(id)} removeLabel={t('layout.hide')}>
+  {#snippet gear(id: string)}
+    <TileGear {id} />
+  {/snippet}
+
+  <GridLayout tools={gear} items={dashboardLayout.visible} edit={dashboardLayout.edit} onchange={(i) => dashboardLayout.set(i)} onremove={(id) => dashboardLayout.hide(id)} removeLabel={t('layout.hide')}>
 {#snippet cell(id, narrow)}
       {#if id === 'next'}
-        <Tile title={t('dash.nextStop')} tone={lowFuel ? 'warn' : 'default'}>
+        <Tile id="next" {gear} title={t('dash.nextStop')} tone={lowFuel ? 'warn' : 'default'}>
           {#if race}
             <div class="big num {lowFuel ? 'warn' : ''}">{duration(toStop)}</div>
-            <div class="muted">{t('dash.lapsToStop', { n: race.laps_to_stop })}</div>
+            {#if dashboardLayout.shows('next', 'lapsToStop')}<div class="muted">{t('dash.lapsToStop', { n: race.laps_to_stop })}</div>{/if}
           {:else}
             <div class="big muted">–</div>
             <div class="muted">{t('wait.title')}</div>
@@ -92,47 +97,51 @@
         </Tile>
       {/if}
       {#if id === 'fuel'}
-        <Tile title={t('dash.fuel')}>
+        <Tile id="fuel" {gear} title={t('dash.fuel')}>
           <div class="big num">
             {fixed(car.fuel, 1)}<span class="unit">L</span>
             {#if car.fuel_overridden}<span class="badge">{t('dash.override')}</span>{/if}
           </div>
-          <div class="muted">{t('dash.capacity', { n: fixed(car.fuel_capacity, 0) })}</div>
-          <div class="num">
-            {t('dash.fuelPerLap')}: <strong>{fixed(car.fuel_per_lap, 2)}</strong> {t('dash.perLap')}
-            {#if car.fuel_per_lap_overridden}<span class="badge">{t('dash.override')}</span>{/if}
-          </div>
+          {#if dashboardLayout.shows('fuel', 'capacity')}<div class="muted">{t('dash.capacity', { n: fixed(car.fuel_capacity, 0) })}</div>{/if}
+          {#if dashboardLayout.shows('fuel', 'perLap')}
+            <div class="num">
+              {t('dash.fuelPerLap')}: <strong>{fixed(car.fuel_per_lap, 2)}</strong> {t('dash.perLap')}
+              {#if car.fuel_per_lap_overridden}<span class="badge">{t('dash.override')}</span>{/if}
+            </div>
+          {/if}
         </Tile>
       {/if}
       {#if id === 'stops'}
-        <Tile title={t('dash.stops')}>
+        <Tile id="stops" {gear} title={t('dash.stops')}>
           {#if race}
             <div class="big num">{race.stops_remaining}</div>
-            <div class="muted">{t('dash.lapsLeft', { n: race.laps_left })}</div>
-            <div class="num">
-              {t('dash.saveTarget')}:
-              {#if race.save_target != null}
-                <strong>{fixed(race.save_target, 2)}</strong> {t('dash.perLap')}
-                {#if saveDelta != null}
-                  <div class="muted">{t('dash.saveDelta', { n: signed(saveDelta, 2) })}</div>
+            {#if dashboardLayout.shows('stops', 'lapsLeft')}<div class="muted">{t('dash.lapsLeft', { n: race.laps_left })}</div>{/if}
+            {#if dashboardLayout.shows('stops', 'saveTarget')}
+              <div class="num">
+                {t('dash.saveTarget')}:
+                {#if race.save_target != null}
+                  <strong>{fixed(race.save_target, 2)}</strong> {t('dash.perLap')}
+                  {#if saveDelta != null && dashboardLayout.shows('stops', 'saveDelta')}
+                    <div class="muted">{t('dash.saveDelta', { n: signed(saveDelta, 2) })}</div>
+                  {/if}
+                {:else}
+                  <span class="muted">{t('dash.saveNone')}</span>
                 {/if}
-              {:else}
-                <span class="muted">{t('dash.saveNone')}</span>
-              {/if}
-            </div>
+              </div>
+            {/if}
           {:else}
             <div class="big muted">–</div>
           {/if}
         </Tile>
       {/if}
       {#if id === 'driver'}
-        <Tile title={t('dash.driver')}>
+        <Tile id="driver" {gear} title={t('dash.driver')}>
           <div class="name">{car.driver || '–'}{#if car.control === 1}<span class="ai">{t('dash.ai')}</span>{/if}</div>
-          <div class="num muted">{t('dash.lap', { n: car.lap })} · {t('dash.place', { n: car.place })} · {lapTime(car.lap_time)}</div>
+          {#if dashboardLayout.shows('driver', 'laps')}<div class="num muted">{t('dash.lap', { n: car.lap })} · {t('dash.place', { n: car.place })} · {lapTime(car.lap_time)}</div>{/if}
         </Tile>
       {/if}
       {#if id === 'opponents'}
-        <Tile title={t('dash.opponents')}>
+        <Tile id="opponents" {gear} title={t('dash.opponents')}>
           {#each [['ahead', s.opponents?.ahead], ['behind', s.opponents?.behind]] as [side, o] (side)}
             {@const opp = o as Opponent | null}
             {@const sd = side as 'ahead' | 'behind'}
@@ -141,9 +150,11 @@
               {#if opp}
                 <span class="oppname">{opp.driver || opp.vehicle_name}</span>
                 <span class="num">{opp.gap == null ? '–' : `${fixed(opp.gap, 1)} s`}</span>
-                <span class="num {trendTone(sd, opp.trend)}">
-                  {arrow(opp.trend)} {opp.trend == null ? '' : `${signed(opp.trend, 1)} s/${t('dash.lapUnit')}`}
-                </span>
+                {#if dashboardLayout.shows('opponents', 'trend')}
+                  <span class="num {trendTone(sd, opp.trend)}">
+                    {arrow(opp.trend)} {opp.trend == null ? '' : `${signed(opp.trend, 1)} s/${t('dash.lapUnit')}`}
+                  </span>
+                {/if}
               {:else}
                 <span class="muted">{t('dash.noOpponent')}</span>
               {/if}
@@ -152,7 +163,7 @@
         </Tile>
       {/if}
       {#if id === 'map'}
-        <Tile title={t('map.title')}>
+        <Tile id="map" {gear} title={t('map.title')}>
           <div class="mapbox"><TrackMap compact /></div>
           <div class="maprow">
             <MapControls />
@@ -161,60 +172,62 @@
         </Tile>
       {/if}
       {#if id === 'tyres'}
-        <Tile title={t('tyres.title')}>
+        <Tile id="tyres" {gear} title={t('tyres.title')}>
           <TyreTemps />
         </Tile>
       {/if}
       {#if id === 'pits'}
-        <Tile title={t('pits.title')}>
+        <Tile id="pits" {gear} title={t('pits.title')}>
           <PitsPanel />
         </Tile>
       {/if}
       {#if id === 'setups'}
-        <Tile title={t('setups.title')} action={newSetup}>
+        <Tile id="setups" {gear} title={t('setups.title')} action={newSetup}>
           <PitSetups />
         </Tile>
       {/if}
       {#if id === 'rivals'}
-        <Tile title={t('rivals.title')}>
+        <Tile id="rivals" {gear} title={t('rivals.title')}>
           <RivalsPanel />
         </Tile>
       {/if}
       {#if id === 'alerts'}
-        <Tile title={t('alerts.title')}>
+        <Tile id="alerts" {gear} title={t('alerts.title')}>
           <AlertsPanel />
         </Tile>
       {/if}
       {#if id === 'agents'}
-        <Tile title={t('agents.title')}>
+        <Tile id="agents" {gear} title={t('agents.title')}>
           <AgentsPanel />
         </Tile>
       {/if}
       {#if id === 'model'}
-        <Tile title={t('model.title')}>
+        <Tile id="model" {gear} title={t('model.title')}>
           <ModelPanel />
         </Tile>
       {/if}
       {#if id === 'corner'}
-        <Tile title={t('corner.title')}>
+        <Tile id="corner" {gear} title={t('corner.title')}>
           <CornerTile />
         </Tile>
       {/if}
       {#if id === 'weather'}
-        <Tile title={t('weather.title')}>
+        <Tile id="weather" {gear} title={t('weather.title')}>
           <WeatherPanel />
         </Tile>
       {/if}
       {#if id === 'plan'}
-        <Tile title={t('nav.plan')} tone={plan && plan.shortfall > 0 ? 'bad' : 'default'}>
+        <Tile id="plan" {gear} title={t('nav.plan')} tone={plan && plan.shortfall > 0 ? 'bad' : 'default'}>
           {#if plan && current}
             <div class="name">{t('dash.stint', { n: current.no })} · {current.driver}</div>
-            {#if next}
+            {#if next && dashboardLayout.shows('plan', 'next')}
               <div class="num">{t('dash.next')}: <strong>{next.driver}</strong></div>
             {/if}
-            <div class="num {plan.current_deviation > 60 ? 'warn' : plan.current_deviation < -60 ? 'good' : 'muted'}">
-              {signed(plan.current_deviation / 60, 0)} min {t('dash.vsPlan')}
-            </div>
+            {#if dashboardLayout.shows('plan', 'deviation')}
+              <div class="num {plan.current_deviation > 60 ? 'warn' : plan.current_deviation < -60 ? 'good' : 'muted'}">
+                {signed(plan.current_deviation / 60, 0)} min {t('dash.vsPlan')}
+              </div>
+            {/if}
             {#if plan.shortfall > 0}
               <div class="bad">{t('dash.shortfall', { t: duration(plan.shortfall) })}</div>
             {/if}
@@ -242,10 +255,10 @@
   .layoutbar .hint { margin-right: auto; }
   @media (max-width: 639px) { .layoutbar { display: none; } }
   .mapbox { flex: 1; min-height: 160px; min-width: 0; display: flex; }
-  .big { font-size: clamp(2.6rem, 9vw, 4.6rem); font-weight: 700; line-height: 1.05; }
+  .big { font-size: calc(var(--ts, 1) * clamp(2rem, 16cqw, 4.6rem)); font-weight: 700; line-height: 1.05; }
   .unit { font-size: 0.4em; margin-left: 4px; color: var(--muted); font-weight: 500; }
-  .name { font-size: 1.3rem; font-weight: 600; }
-  .small { font-size: 0.8rem; }
+  .name { font-size: 1.3em; font-weight: 600; }
+  .small { font-size: 0.8em; }
   .badge {
     font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-left: 8px;
     background: var(--warn); color: #231600; vertical-align: middle; letter-spacing: 0.03em;

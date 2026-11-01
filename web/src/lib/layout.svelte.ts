@@ -1,8 +1,9 @@
 import { compact, reconcile, rows, type Item } from './grid';
 import { readJson, safeStorage, writeJson } from './storage';
+import { cleanOptions, type TileOptions } from './tiles';
 
 const KEY = 'splash.layout.dashboard';
-const VERSION = 1;
+const VERSION = 2; // 1 is the same without the options of the tiles
 
 /** The overview tiles on a 12 column grid; positions and sizes are in cells. */
 export const DEFAULT_DASHBOARD: Item[] = [
@@ -28,6 +29,8 @@ class DashboardLayout {
   /** Positions of all tiles, hidden ones included, so a tile comes back where it was. */
   items = $state<Item[]>(DEFAULT_DASHBOARD);
   hidden = $state<string[]>([]);
+  /** Text size, switched off lines and the like per tile. */
+  options = $state<Record<string, TileOptions>>({});
   edit = $state(false);
 
   get visible(): Item[] {
@@ -35,16 +38,37 @@ class DashboardLayout {
   }
 
   constructor() {
-    const saved = readJson<{ v: number; items: unknown; hidden?: unknown }>(safeStorage(), KEY);
-    this.items = reconcile(saved?.v === VERSION ? saved.items : null, DEFAULT_DASHBOARD);
+    const saved = readJson<{ v: number; items: unknown; hidden?: unknown; options?: unknown }>(safeStorage(), KEY);
+    const ok = saved?.v === 1 || saved?.v === VERSION;
+    this.items = reconcile(ok ? saved!.items : null, DEFAULT_DASHBOARD);
     const known = new Set(DEFAULT_DASHBOARD.map((d) => d.id));
-    if (saved?.v === VERSION && Array.isArray(saved.hidden)) {
-      this.hidden = saved.hidden.filter((id): id is string => typeof id === 'string' && known.has(id));
+    if (ok) this.options = cleanOptions(saved!.options, known);
+    if (ok && Array.isArray(saved!.hidden)) {
+      this.hidden = saved!.hidden.filter((id): id is string => typeof id === 'string' && known.has(id));
     }
   }
 
   private save(): void {
-    writeJson(safeStorage(), KEY, { v: VERSION, items: this.items, hidden: this.hidden });
+    writeJson(safeStorage(), KEY, { v: VERSION, items: this.items, hidden: this.hidden, options: this.options });
+  }
+
+  optionsOf(id: string): TileOptions {
+    return this.options[id] ?? {};
+  }
+
+  /** False when the line is switched off in the gear of the tile. */
+  shows(id: string, line: string): boolean {
+    return !this.optionsOf(id).hide?.includes(line);
+  }
+
+  setOption(id: string, patch: Partial<TileOptions>): void {
+    this.options = { ...this.options, [id]: { ...this.optionsOf(id), ...patch } };
+    this.save();
+  }
+
+  toggleLine(id: string, line: string): void {
+    const hide = this.optionsOf(id).hide ?? [];
+    this.setOption(id, { hide: hide.includes(line) ? hide.filter((l) => l !== line) : [...hide, line] });
   }
 
   /** Takes the new positions of the visible tiles; hidden tiles keep theirs. */
@@ -80,6 +104,7 @@ class DashboardLayout {
 
   reset(): void {
     this.hidden = [];
+    this.options = {};
     this.items = reconcile(null, DEFAULT_DASHBOARD);
     this.save();
   }

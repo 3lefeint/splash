@@ -1,39 +1,45 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { provideTileInfo } from '../lib/info.svelte';
+  import { dashboardLayout } from '../lib/layout.svelte';
+  import { SIZE_SCALE } from '../lib/tiles';
   import InfoButton from './InfoButton.svelte';
 
   let {
     title,
+    id,
     tone = 'default',
     wide = false,
     action,
+    gear,
     children,
   }: {
     title: string;
+    /** The id on the dashboard: gives the tile its text size from the layout. */
+    id?: string;
     tone?: 'default' | 'good' | 'warn' | 'bad';
     wide?: boolean;
     /** Optional control in the top right corner of the tile. */
     action?: Snippet;
+    /** The gear of the tile; hidden while the layout is arranged (the grid shows its own then). */
+    gear?: Snippet<[string]>;
     children: Snippet;
   } = $props();
 
   const info = provideTileInfo();
+  const scale = $derived(SIZE_SCALE[(id && dashboardLayout.optionsOf(id).size) || 'm']);
 </script>
 
-<section class="tile {tone}" class:wide>
-  {#if action || info.list.length > 0}
-    <header>
-      <h2>{title}</h2>
-      <span class="tools">
-        {#if info.list.length > 0}<InfoButton texts={info.list} />{/if}
-        {#if action}{@render action()}{/if}
-      </span>
-    </header>
-  {:else}
+<section class="tile {tone}" class:wide style="--ts:{scale}">
+  <header>
     <h2>{title}</h2>
-  {/if}
-  {@render children()}
+    <span class="tools">
+      {#if info.list.length > 0}<InfoButton texts={info.list} />{/if}
+      {#if action}{@render action()}{/if}
+      {#if gear && id && !dashboardLayout.edit}{@render gear(id ?? '')}{/if}
+    </span>
+  </header>
+  <div class="body">{@render children()}</div>
 </section>
 
 <style>
@@ -48,7 +54,10 @@
     min-width: 0;
     height: 100%;
     overflow: auto;
+    font-size: calc(1rem * var(--ts, 1));
   }
+  /* The numbers inside follow the width of the tile, not of the window. */
+  .body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; container-type: inline-size; }
   .tile.warn { border-color: var(--warn); }
   .tile.bad { border-color: var(--bad); }
   .tile.good { border-color: var(--good); }
