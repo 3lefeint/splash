@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .logsetup import parse_level
+from .update import valid_repo
 
 
 class ConfigError(ValueError):
@@ -27,6 +28,10 @@ class Config:
     cf_client_id: str = ""
     cf_client_secret: str = field(default="", repr=False)
     log_level: str = "INFO"
+    # Self-update from the GitHub releases of the agent, see update.py. Only the single-file Windows build uses it.
+    update_enabled: bool = True
+    update_repo: str = "3lefeint/splash"
+    update_check_hours: float = 6.0
 
 
 def load(path: str | Path) -> Config:
@@ -45,7 +50,7 @@ def load(path: str | Path) -> Config:
         value = str(agent.get(name, default))
         return str(base / value) if value and not Path(value).is_absolute() else value
 
-    log_section = raw.get("log", {})
+    log_section, update = raw.get("log", {}), raw.get("update", {})
     cfg = Config(
         url=str(server.get("url", "")),
         token=str(server.get("token", "")),
@@ -58,7 +63,14 @@ def load(path: str | Path) -> Config:
         cf_client_id=str(server.get("cf_client_id", "")),
         cf_client_secret=str(server.get("cf_client_secret", "")),
         log_level=str(log_section.get("level", "INFO")),
+        update_enabled=bool(update.get("enabled", True)),
+        update_repo=str(update.get("repo", "3lefeint/splash")),
+        update_check_hours=float(update.get("check_hours", 6)),
     )
+    if not valid_repo(cfg.update_repo):
+        raise ConfigError("update.repo must look like owner/name")
+    if not 1 <= cfg.update_check_hours <= 168:
+        raise ConfigError("update.check_hours must be between 1 and 168")
     if not cfg.url.startswith(("ws://", "wss://")):
         raise ConfigError("server.url must start with ws:// or wss://")
     try:

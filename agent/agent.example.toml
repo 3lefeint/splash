@@ -25,3 +25,10 @@ scoring_hz = 2
 [log]
 # DEBUG, INFO, WARNING or ERROR; the command line option --log-level overrides it. Lines go to the console.
 level = "INFO"
+
+[update]
+# The single-file Windows build looks for a newer release of the agent and installs it when the game is idle.
+enabled = true
+# GitHub repository with the releases (tags agent-vX.Y.Z).
+repo = "3lefeint/splash"
+check_hours = 6
