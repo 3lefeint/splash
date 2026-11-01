@@ -498,6 +498,36 @@ def _levels(args) -> tuple[int, Config | None]:
     return parse_level(name), cfg
 
 
+def find_config(explicit: str | None) -> str:
+    """The configuration file: the one given, else agent.toml in the working folder, else next to the program (the
+    single-file build, started by a double click or from another folder)."""
+    if explicit:
+        return explicit
+    here = Path("agent.toml")
+    if here.exists():
+        return str(here)
+    if getattr(sys, "frozen", False):
+        beside = Path(sys.executable).parent / "agent.toml"
+        if beside.exists():
+            return str(beside)
+    return str(here)
+
+
+MISSING_CONFIG_HINT = (
+    "There is no configuration yet. Sign in to Splash, open the administration page, press \"Download the configuration\" "
+    "under \"My agent\" and save the file as agent.toml next to this program. Then start it again."
+)
+
+
+def _wait_for_enter() -> None:
+    """Keeps the window open after an error when somebody started the program by a double click."""
+    try:
+        if sys.stdin is not None and sys.stdin.isatty():
+            input("Press Enter to close this window. ")
+    except (EOFError, KeyboardInterrupt, OSError):
+        pass
+
+
 def cli(argv: list[str] | None = None) -> int:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--log-level", default=argparse.SUPPRESS, metavar="LEVEL",
@@ -505,15 +535,15 @@ def cli(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="splash-agent", parents=[common])
     sub = ap.add_subparsers(dest="cmd", required=True)
     run = sub.add_parser("run", parents=[common], help="stream the shared memory data to the backend")
-    run.add_argument("--config", default="agent.toml")
+    run.add_argument("--config", default=None, help="default: agent.toml in the working folder or next to the program")
     run.set_defaults(fn=cmd_run)
     upd = sub.add_parser("update", parents=[common], help="look for a newer agent release, or install it")
     upd.add_argument("action", choices=["check", "install"])
-    upd.add_argument("--config", default="agent.toml")
+    upd.add_argument("--config", default=None)
     upd.set_defaults(fn=cmd_update)
     auto = sub.add_parser("autostart", parents=[common], help="start the agent when you sign in to Windows")
     auto.add_argument("action", choices=["on", "off", "status"])
-    auto.add_argument("--config", default="agent.toml")
+    auto.add_argument("--config", default=None)
     auto.set_defaults(fn=cmd_autostart)
     probe = sub.add_parser("probe", parents=[common], help="print the telemetry of all vehicles once")
     probe.set_defaults(fn=cmd_probe)
@@ -528,10 +558,12 @@ def cli(argv: list[str] | None = None) -> int:
     sim.set_defaults(fn=cmd_simulate)
     rr = sub.add_parser("replay-raw", parents=[common], help="run a raw capture (agent.raw_file) through the agent offline")
     rr.add_argument("file")
-    rr.add_argument("--config", default="agent.toml")
+    rr.add_argument("--config", default=None)
     rr.add_argument("--out", default="replay-out.ndjson")
     rr.set_defaults(fn=cmd_replay_raw)
     args = ap.parse_args(argv)
+    if hasattr(args, "config"):
+        args.config = find_config(args.config)
     try:
         level, cfg = _levels(args)
     except ValueError as e:
@@ -544,9 +576,13 @@ def cli(argv: list[str] | None = None) -> int:
         return args.fn(args)
     except ConfigError as e:
         print(f"config error: {e}", file=sys.stderr)
+        if hasattr(args, "config") and not Path(args.config).exists():
+            print(MISSING_CONFIG_HINT, file=sys.stderr)
+        _wait_for_enter()
         return 2
     except Exception:
         log.error("unrecoverable failure, the agent stops", exc_info=True)
+        _wait_for_enter()
         return 1
 
 

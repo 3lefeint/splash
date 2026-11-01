@@ -19,11 +19,21 @@ Message format: see [`../docs/wire-format.md`](../docs/wire-format.md).
 
 ## Setup (Windows)
 
+Most people use the finished program and a configuration from the Splash page:
+
 1. Enable `rFactor2SharedMemoryMapPlugin64.dll` in rFactor 2.
-2. `pip install .` in this directory (Python 3.11 or newer).
-3. Copy `agent.example.toml` to `agent.toml` and set the server URL and the token. The `id` of this PC defaults to its
-   name.
-4. `splash-agent run --config agent.toml`
+2. Download `splash-agent.exe` from the newest `agent-v…` release on GitHub. Windows may warn about an unsigned program
+   ("Windows protected your PC"): choose "More info", then "Run anyway".
+3. Sign in to Splash, open the administration page and press "Download the configuration" under "My agent". The
+   administrator has to set your short name and your Cloudflare data first; the page says so if something is missing.
+4. Save the file as `agent.toml` next to `splash-agent.exe` and start the program by double-clicking it. It asks once
+   whether to start with Windows. A new download issues a new token and the old configuration stops working.
+
+The program looks for `agent.toml` in its working folder, then next to itself. When there is none it says so and waits
+for Enter, so the window does not vanish.
+
+From source (development): `pip install .` in this directory (Python 3.11 or newer), copy `agent.example.toml` to
+`agent.toml`, set the server URL and the token, then `splash-agent run --config agent.toml`.
 
 With the Cloudflare Access in front of the backend, give the agent its own service token in `agent.toml`
 (`server.cf_client_id` and `server.cf_client_secret`, both or neither); the handshake then also sends
