@@ -1,0 +1,65 @@
+import type { Item } from './grid';
+
+export type TileSize = 's' | 'm' | 'l';
+
+/** What a tile of the dashboard remembers besides its place: stored with the layout in the browser. */
+export interface TileOptions {
+  size?: TileSize;
+  /** Lines switched off. */
+  hide?: string[];
+  /** Columns of the grid inside the tile (pit set-ups). */
+  columns?: number;
+  /** Place of the buttons inside the tile by name (pit set-ups). */
+  grid?: Item[];
+}
+
+export const SIZE_SCALE: Record<TileSize, number> = { s: 0.8, m: 1, l: 1.25 };
+export const SIZES: TileSize[] = ['s', 'm', 'l'];
+
+/** The lines of a tile that can be switched off. */
+export const TILE_LINES: Record<string, string[]> = {
+  next: ['lapsToStop'],
+  fuel: ['capacity', 'perLap'],
+  stops: ['lapsLeft', 'saveTarget', 'saveDelta'],
+  driver: ['laps'],
+  opponents: ['trend'],
+  plan: ['next', 'deviation'],
+};
+
+export const MAX_COLUMNS = 4;
+
+function validItem(x: unknown): x is Item {
+  if (!x || typeof x !== 'object') return false;
+  const i = x as Record<string, unknown>;
+  return (
+    typeof i.id === 'string' &&
+    [i.x, i.y, i.w, i.h].every((n) => Number.isInteger(n)) &&
+    (i.x as number) >= 0 &&
+    (i.y as number) >= 0 &&
+    (i.w as number) >= 1 &&
+    (i.h as number) >= 1
+  );
+}
+
+/** Takes what was stored and keeps only what is valid for the known tiles. */
+export function cleanOptions(raw: unknown, known: Set<string>): Record<string, TileOptions> {
+  const out: Record<string, TileOptions> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!known.has(id) || !v || typeof v !== 'object') continue;
+    const o = v as Record<string, unknown>;
+    const clean: TileOptions = {};
+    if (o.size === 's' || o.size === 'm' || o.size === 'l') clean.size = o.size;
+    if (Array.isArray(o.hide)) {
+      const lines = TILE_LINES[id] ?? [];
+      const hide = o.hide.filter((l): l is string => typeof l === 'string' && lines.includes(l));
+      if (hide.length) clean.hide = hide;
+    }
+    if (Number.isInteger(o.columns) && (o.columns as number) >= 1 && (o.columns as number) <= MAX_COLUMNS) {
+      clean.columns = o.columns as number;
+    }
+    if (Array.isArray(o.grid)) clean.grid = o.grid.filter(validItem).map(({ id, x, y, w, h }) => ({ id, x, y, w, h }));
+    out[id] = clean;
+  }
+  return out;
+}
