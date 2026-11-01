@@ -32,6 +32,8 @@ class DashboardLayout {
   /** Text size, switched off lines and the like per tile. */
   options = $state<Record<string, TileOptions>>({});
   edit = $state(false);
+  /** Show the example values while arranging even though an agent sends data; not stored. */
+  demo = $state(false);
 
   get visible(): Item[] {
     return this.items.filter((i) => !this.hidden.includes(i.id));

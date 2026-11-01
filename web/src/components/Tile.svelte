@@ -2,7 +2,6 @@
   import type { Snippet } from 'svelte';
   import { provideTileInfo } from '../lib/info.svelte';
   import { dashboardLayout } from '../lib/layout.svelte';
-  import { SIZE_SCALE } from '../lib/tiles';
   import InfoButton from './InfoButton.svelte';
 
   let {
@@ -27,10 +26,10 @@
   } = $props();
 
   const info = provideTileInfo();
-  const scale = $derived(SIZE_SCALE[(id && dashboardLayout.optionsOf(id).size) || 'm']);
+  const mode = $derived((id && dashboardLayout.optionsOf(id).mode) || 'normal');
 </script>
 
-<section class="tile {tone}" class:wide style="--ts:{scale}">
+<section class="tile {tone}" class:wide class:compact={mode === 'compact'} class:value={mode === 'value'} title={mode === 'value' ? title : undefined}>
   <header>
     <h2>{title}</h2>
     <span class="tools">
@@ -54,10 +53,19 @@
     min-width: 0;
     height: 100%;
     overflow: auto;
-    font-size: calc(1rem * var(--ts, 1));
+    position: relative;
   }
   /* The numbers inside follow the width of the tile, not of the window. */
   .body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; container-type: inline-size; }
+  /* One line: small title, the values side by side. */
+  .tile.compact { padding: 8px 12px; gap: 2px; }
+  .tile.compact h2 { font-size: 0.65rem; }
+  .tile.compact .body { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 0; }
+  /* Only the first value; the title is hidden and the tools sit in the corner. */
+  .tile.value { padding: 6px 10px; }
+  .tile.value header { position: absolute; top: 4px; right: 6px; opacity: 0.7; z-index: 1; }
+  .tile.value h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .tile.value .body > :global(:not(:first-child)) { display: none; }
   .tile.warn { border-color: var(--warn); }
   .tile.bad { border-color: var(--bad); }
   .tile.good { border-color: var(--good); }

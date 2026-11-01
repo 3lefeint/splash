@@ -1,43 +1,43 @@
+<script module lang="ts">
+  /** Which tile has its settings panel open; one at a time, kept when the gear is swapped for the one of the edit mode. */
+  const ui = $state<{ open: string | null }>({ open: null });
+</script>
+
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { Key } from '../lib/i18n';
   import { dashboardLayout } from '../lib/layout.svelte';
   import { t } from '../lib/settings.svelte';
-  import { SIZES, TILE_LINES } from '../lib/tiles';
+  import { MODES, TILE_LINES } from '../lib/tiles';
 
-  /** The gear of a dashboard tile: text size, the lines to show and whatever the tile adds itself. */
+  /** The gear of a dashboard tile: a panel at the edge of the window, away from the tile, so the tile stays in view. */
   let { id, children }: { id: string; children?: Snippet } = $props();
 
-  let open = $state(false);
   let button = $state<HTMLButtonElement>();
-  let popup = $state<HTMLDivElement>();
-  let pos = $state({ top: 0, left: 0 });
+  let side = $state<'left' | 'right'>('right');
 
+  const open = $derived(ui.open === id);
   const options = $derived(dashboardLayout.optionsOf(id));
   const lines = $derived(TILE_LINES[id] ?? []);
 
-  function toggle(): void {
-    if (!open && button) {
-      const r = button.getBoundingClientRect();
-      const width = Math.min(340, window.innerWidth - 16);
-      pos = { top: r.bottom + 6, left: Math.min(Math.max(r.right - width, 8), window.innerWidth - width - 8) };
-    }
-    open = !open;
-  }
+  const toggle = () => (ui.open = open ? null : id);
 
+  // The panel goes to the half of the window the tile is not in; the tile gets a frame while it is open.
   $effect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => {
-      const target = e.target as Node;
-      if (!popup?.contains(target) && !button?.contains(target)) open = false;
-    };
+    if (!open || !button) return;
+    const host = button.closest('.cell, .tile') as HTMLElement | null;
+    const tile = (host?.matches('.tile') ? host : host?.querySelector('.tile')) as HTMLElement | null;
+    if (host) {
+      const r = host.getBoundingClientRect();
+      side = r.left + r.width / 2 < window.innerWidth / 2 ? 'right' : 'left';
+    }
+    tile?.classList.add('gear-open');
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') open = false;
+      if (e.key === 'Escape') ui.open = null;
     };
-    window.addEventListener('pointerdown', away, true);
     window.addEventListener('keydown', key);
     return () => {
-      window.removeEventListener('pointerdown', away, true);
+      tile?.classList.remove('gear-open');
       window.removeEventListener('keydown', key);
     };
   });
@@ -50,15 +50,19 @@
   </svg>
 </button>
 {#if open}
-  <div bind:this={popup} class="pop" role="dialog" style="top:{pos.top}px; left:{pos.left}px">
-    <div class="group">
-      <span class="label">{t('tile.size')}</span>
+  <div class="pop {side}" role="dialog" aria-label={t('tile.gear')}>
+    <div class="head">
+      <b>{t('tile.gear')}</b>
+      <button class="close" onclick={() => (ui.open = null)} aria-label={t('tile.close')} title={t('tile.close')}>×</button>
+    </div>
+    {#if lines.length}<div class="group">
+      <span class="label">{t('tile.mode')}</span>
       <span class="sizes">
-        {#each SIZES as size (size)}
-          <button class:on={(options.size ?? 'm') === size} onclick={() => dashboardLayout.setOption(id, { size })}>{t(`tile.size.${size}` as Key)}</button>
+        {#each MODES as mode (mode)}
+          <button class:on={(options.mode ?? 'normal') === mode} onclick={() => dashboardLayout.setOption(id, { mode })}>{t(`tile.mode.${mode}` as Key)}</button>
         {/each}
       </span>
-    </div>
+    </div>{/if}
     {#if lines.length}
       <div class="group col">
         <span class="label">{t('tile.lines')}</span>
@@ -82,16 +86,25 @@
   }
   .gear:hover, .gear.on { color: var(--accent); border-color: var(--accent); }
   .pop {
-    position: fixed; z-index: 50; width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 80px); overflow: auto;
-    display: flex; flex-direction: column; gap: 12px;
-    background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+    position: fixed; z-index: 50; top: 64px; bottom: 12px; width: min(300px, calc(100vw - 24px)); overflow: auto;
+    display: flex; flex-direction: column; gap: 12px; align-content: flex-start;
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--accent); border-radius: 10px;
     padding: 10px 12px; font-size: 0.85rem; line-height: 1.4; box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
   }
+  .pop.left { left: 12px; }
+  .pop.right { right: 12px; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .close { width: 28px; height: 28px; min-width: 28px; min-height: 28px; padding: 0; line-height: 1; border-radius: 50%; }
+  /* On a narrow window the panel is a sheet at the bottom. */
+  @media (max-width: 639px) {
+    .pop, .pop.left, .pop.right { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 45vh; }
+  }
+  :global(.tile.gear-open) { outline: 2px solid var(--accent); outline-offset: -2px; }
   .group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .group.col { flex-direction: column; align-items: flex-start; gap: 6px; }
   .label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
   .sizes { display: inline-flex; gap: 4px; }
-  .sizes button { min-width: 36px; padding: 2px 10px; }
+  .sizes button { padding: 2px 10px; }
   .sizes button.on { background: var(--accent); color: #04121f; border-color: var(--accent); }
   .line { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 </style>
