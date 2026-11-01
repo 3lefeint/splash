@@ -146,19 +146,36 @@ func runSuite(t *testing.T, s Store) {
 	})
 
 	t.Run("overrides", func(t *testing.T) {
-		s.SetOverride(ctx, OverrideFuel, 40)
-		s.SetOverride(ctx, OverrideFuel, 41)
-		s.SetOverride(ctx, OverrideFuelPerLap, 3.2)
-		got, err := s.GetOverrides(ctx)
+		s.SetOverride(ctx, 0, OverrideFuel, 40)
+		s.SetOverride(ctx, 0, OverrideFuel, 41)
+		s.SetOverride(ctx, 0, OverrideFuelPerLap, 3.2)
+		got, err := s.GetOverrides(ctx, 0)
 		if err != nil || len(got) != 2 || got[OverrideFuel].Value != 41 {
 			t.Fatalf("got=%v err=%v", got, err)
 		}
-		s.DeleteOverride(ctx, OverrideFuel)
-		s.DeleteOverride(ctx, "missing") // not an error
-		if got, _ := s.GetOverrides(ctx); len(got) != 1 {
+		s.DeleteOverride(ctx, 0, OverrideFuel)
+		s.DeleteOverride(ctx, 0, "missing") // not an error
+		if got, _ := s.GetOverrides(ctx, 0); len(got) != 1 {
 			t.Fatalf("got=%v", got)
 		}
-		s.DeleteOverride(ctx, OverrideFuelPerLap)
+		s.DeleteOverride(ctx, 0, OverrideFuelPerLap)
+	})
+
+	t.Run("overrides are kept per agent", func(t *testing.T) {
+		s.SetOverride(ctx, 1, OverrideFuel, 10)
+		s.SetOverride(ctx, 2, OverrideFuel, 20)
+		s.SetOverride(ctx, 2, OverrideFuelPerLap, 3)
+		o1, _ := s.GetOverrides(ctx, 1)
+		o2, _ := s.GetOverrides(ctx, 2)
+		if len(o1) != 1 || o1[OverrideFuel].Value != 10 || len(o2) != 2 || o2[OverrideFuel].Value != 20 {
+			t.Fatalf("agent 1 %+v, agent 2 %+v", o1, o2)
+		}
+		s.DeleteOverride(ctx, 1, OverrideFuel)
+		if o2, _ = s.GetOverrides(ctx, 2); len(o2) != 2 {
+			t.Fatalf("deleting the override of agent 1 changed agent 2: %+v", o2)
+		}
+		s.DeleteOverride(ctx, 2, OverrideFuel)
+		s.DeleteOverride(ctx, 2, OverrideFuelPerLap)
 	})
 
 	t.Run("track map round trip", func(t *testing.T) {
@@ -473,15 +490,15 @@ func runTeamSuite(t *testing.T, db DB) {
 			t.Fatalf("plan of b after clearing a: %+v", rb)
 		}
 
-		a.SetOverride(ctx, OverrideFuel, 10)
-		b.SetOverride(ctx, OverrideFuel, 20)
-		oa, _ := a.GetOverrides(ctx)
-		ob, _ := b.GetOverrides(ctx)
+		a.SetOverride(ctx, 0, OverrideFuel, 10)
+		b.SetOverride(ctx, 0, OverrideFuel, 20)
+		oa, _ := a.GetOverrides(ctx, 0)
+		ob, _ := b.GetOverrides(ctx, 0)
 		if oa[OverrideFuel].Value != 10 || ob[OverrideFuel].Value != 20 {
 			t.Fatalf("overrides a=%+v b=%+v", oa, ob)
 		}
-		a.DeleteOverride(ctx, OverrideFuel)
-		if ob, _ = b.GetOverrides(ctx); len(ob) != 1 {
+		a.DeleteOverride(ctx, 0, OverrideFuel)
+		if ob, _ = b.GetOverrides(ctx, 0); len(ob) != 1 {
 			t.Fatalf("override of b after deleting a's: %+v", ob)
 		}
 

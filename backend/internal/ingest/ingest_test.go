@@ -46,8 +46,14 @@ func dial(t *testing.T, url, token string) *websocket.Conn {
 
 func send(t *testing.T, c *websocket.Conn, agent string, seq int, typ, payload string) wire.Ack {
 	t.Helper()
-	msg := fmt.Sprintf(`{"v":1,"type":%q,"agent_id":%q,"role":"driver","session_id":"s1","seq":%d,"et":%d,"payload":%s}`,
-		typ, agent, seq, seq*10, payload)
+	return sendIn(t, c, agent, "s1", seq, typ, payload)
+}
+
+// sendIn is send for a session other than s1.
+func sendIn(t *testing.T, c *websocket.Conn, agent, session string, seq int, typ, payload string) wire.Ack {
+	t.Helper()
+	msg := fmt.Sprintf(`{"v":1,"type":%q,"agent_id":%q,"role":"driver","session_id":%q,"seq":%d,"et":%d,"payload":%s}`,
+		typ, agent, session, seq, seq*10, payload)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := c.Write(ctx, websocket.MessageText, []byte(msg)); err != nil {

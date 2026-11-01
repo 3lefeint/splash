@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/3lefeint/splash/backend/internal/ingest"
 	"github.com/3lefeint/splash/backend/internal/store"
 	"github.com/3lefeint/splash/backend/internal/teams"
 	"github.com/3lefeint/splash/backend/internal/wire"
@@ -54,9 +55,9 @@ func (r *twoTeams) as(t *testing.T, team, method, path, body string) (int, strin
 }
 
 func feedTeam(rt *teams.Runtime, fuel float64) {
-	rt.Live.UpdateScoring("s1", 100, wire.Scoring{Track: "monza", SessionType: "race", EndET: 1000,
+	rt.Agent(ingest.AgentRef{}).Live.UpdateScoring("s1", 100, wire.Scoring{Track: "monza", SessionType: "race", EndET: 1000,
 		Vehicles: []wire.ScoringVehicle{{CarID: 0, VehicleName: "me", Driver: "a", VehicleClass: "GT3", Place: 1}}})
-	rt.Live.UpdateTelemetry("s1", 100, wire.Telemetry{CarID: 0, VehicleName: "me", Lap: 3, Fuel: fuel, FuelCapacity: 90,
+	rt.Agent(ingest.AgentRef{}).Live.UpdateTelemetry("s1", 100, wire.Telemetry{CarID: 0, VehicleName: "me", Lap: 3, Fuel: fuel, FuelCapacity: 90,
 		Wear: []float64{1, 1, 1, 1}})
 }
 

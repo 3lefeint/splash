@@ -3,6 +3,7 @@ package live
 
 import (
 	"sync"
+	"time"
 
 	"github.com/3lefeint/splash/backend/internal/wire"
 )
@@ -18,6 +19,7 @@ type State struct {
 	telemET   float64
 	firstET   float64
 	hasFirst  bool
+	updated   time.Time
 }
 
 // Snapshot is a copy of the current live state.
@@ -50,6 +52,7 @@ func (s *State) UpdateScoring(sessionID string, et float64, v wire.Scoring) bool
 		return false
 	}
 	s.scoring, s.scoringET = &v, et
+	s.updated = time.Now()
 	return true
 }
 
@@ -65,7 +68,15 @@ func (s *State) UpdateTelemetry(sessionID string, et float64, v wire.Telemetry) 
 		return false
 	}
 	s.telemetry, s.telemET = &v, et
+	s.updated = time.Now()
 	return true
+}
+
+// Updated is the wall-clock time of the last sample that was stored; zero before the first one.
+func (s *State) Updated() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.updated
 }
 
 // Snapshot returns the current state.

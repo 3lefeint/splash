@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/3lefeint/splash/backend/internal/engine"
+	"github.com/3lefeint/splash/backend/internal/ingest"
 	"github.com/3lefeint/splash/backend/internal/live"
 	"github.com/3lefeint/splash/backend/internal/store"
 	"github.com/3lefeint/splash/backend/internal/teams"
@@ -44,7 +45,7 @@ func newRig(t *testing.T) *rig {
 	a.Start(ctx)
 	t.Cleanup(func() { cancel(); srv.Close() })
 	rt := reg.Get(reg.DefaultID())
-	return &rig{db, rt.Store, rt.Live, rt, a, srv}
+	return &rig{db, rt.Store, rt.Agent(ingest.AgentRef{}).Live, rt, a, srv}
 }
 
 func (r *rig) do(t *testing.T, method, path, body string) (int, string) {

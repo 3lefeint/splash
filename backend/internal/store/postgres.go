@@ -268,8 +268,8 @@ func (p *Postgres) SetStintPlan(ctx context.Context, plan []PlanRow) error {
 	return tx.Commit(ctx)
 }
 
-func (p *Postgres) GetOverrides(ctx context.Context) (map[string]Override, error) {
-	rows, err := p.pool.Query(ctx, `SELECT key, value, set_at FROM overrides WHERE team_id = $1`, p.team)
+func (p *Postgres) GetOverrides(ctx context.Context, agentID int64) (map[string]Override, error) {
+	rows, err := p.pool.Query(ctx, `SELECT key, value, set_at FROM overrides WHERE team_id = $1 AND agent_id = $2`, p.team, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -285,15 +285,15 @@ func (p *Postgres) GetOverrides(ctx context.Context) (map[string]Override, error
 	return out, rows.Err()
 }
 
-func (p *Postgres) SetOverride(ctx context.Context, key string, value float64) error {
+func (p *Postgres) SetOverride(ctx context.Context, agentID int64, key string, value float64) error {
 	_, err := p.pool.Exec(ctx, `
-INSERT INTO overrides (key, value, team_id) VALUES ($1,$2,$3)
-ON CONFLICT (team_id, key) DO UPDATE SET value = EXCLUDED.value, set_at = now()`, key, value, p.team)
+INSERT INTO overrides (key, value, team_id, agent_id) VALUES ($1,$2,$3,$4)
+ON CONFLICT (team_id, agent_id, key) DO UPDATE SET value = EXCLUDED.value, set_at = now()`, key, value, p.team, agentID)
 	return err
 }
 
-func (p *Postgres) DeleteOverride(ctx context.Context, key string) error {
-	_, err := p.pool.Exec(ctx, `DELETE FROM overrides WHERE team_id = $2 AND key = $1`, key, p.team)
+func (p *Postgres) DeleteOverride(ctx context.Context, agentID int64, key string) error {
+	_, err := p.pool.Exec(ctx, `DELETE FROM overrides WHERE team_id = $2 AND agent_id = $3 AND key = $1`, key, p.team, agentID)
 	return err
 }
 

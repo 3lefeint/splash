@@ -160,9 +160,10 @@ type Store interface {
 	GetStintPlan(ctx context.Context) ([]PlanRow, error)
 	// SetStintPlan replaces the whole stint plan.
 	SetStintPlan(ctx context.Context, rows []PlanRow) error
-	GetOverrides(ctx context.Context) (map[string]Override, error)
-	SetOverride(ctx context.Context, key string, value float64) error
-	DeleteOverride(ctx context.Context, key string) error
+	// GetOverrides, SetOverride and DeleteOverride work on the overrides of one agent; agent 0 is "no agent".
+	GetOverrides(ctx context.Context, agentID int64) (map[string]Override, error)
+	SetOverride(ctx context.Context, agentID int64, key string, value float64) error
+	DeleteOverride(ctx context.Context, agentID int64, key string) error
 
 	// GetTrackMap returns the outline of a track; ok is false when none was recorded yet.
 	GetTrackMap(ctx context.Context, track string) (m trackmap.Map, ok bool, err error)

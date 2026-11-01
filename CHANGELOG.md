@@ -66,6 +66,7 @@
 - Rate limits per identity on write requests, SSE streams and agent connections (`SPLASH_RATE_WRITES_PER_MIN`, `SPLASH_RATE_CONNECTS_PER_MIN`), answered with 429 and `Retry-After`
 - Release flow with two tag series: `v*` builds the backend image, `agent-v*` publishes the Windows agent as a GitHub release with a SHA-256 checksum
 - Each lap stores the agent whose token delivered it (`laps.agent_id`), taken from the token and not from the agent id in the message
+- Live state, engine, SSE stream and overrides exist per agent instead of per team, so members who train at the same time, also in different sessions, no longer disturb each other; `/api/state`, `/api/stream` and `/api/overrides` take `?agent=<id>` and otherwise show one agent that sent a sample in the last 30 seconds (the lowest id if several), the state carries `agent_id` and `agent_name`
 
 ### Changed
 

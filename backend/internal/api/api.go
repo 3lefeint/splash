@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -54,13 +55,13 @@ type API struct {
 
 	mu   sync.Mutex
 	ctx  context.Context
-	hubs map[int64]*Hub
+	hubs map[hubKey]*Hub
 	now  func() time.Time
 }
 
 // New returns an API for the teams of reg. Until Start is called no state is pushed to SSE clients.
 func New(reg *teams.Registry) *API {
-	a := &API{Teams: reg, Interval: defaultTick, hubs: map[int64]*Hub{}, now: time.Now, Log: logx.Discard(), Throttle: logx.NewThrottle(time.Minute)}
+	a := &API{Teams: reg, Interval: defaultTick, hubs: map[hubKey]*Hub{}, now: time.Now, Log: logx.Discard(), Throttle: logx.NewThrottle(time.Minute)}
 	a.Identify = a.identify
 	return a
 }
@@ -82,14 +83,71 @@ func (a *API) Start(ctx context.Context) {
 	a.mu.Unlock()
 }
 
-// hub returns the SSE hub of a team and starts it on first use.
-func (a *API) hub(rt *teams.Runtime) *Hub {
+// followAgent is the agent selector of a request without ?agent=, see teams.Runtime.Followed. It is a stand-in until a
+// browser is tied to its own agent by e-mail address.
+const followAgent int64 = -1
+
+type hubKey struct{ team, agent int64 }
+
+// agentParam reads ?agent=; without it the request follows the most recently active agent of the team.
+func agentParam(r *http.Request) (int64, error) {
+	v := r.URL.Query().Get("agent")
+	if v == "" {
+		return followAgent, nil
+	}
+	id, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || id < 0 {
+		return 0, errors.New("agent must be a number")
+	}
+	return id, nil
+}
+
+// engineOf returns the engine of the agent a request is about. ok is false for an agent that has not connected since
+// the backend started. A team none of whose agents has connected gets an engine without live data.
+func engineOf(rt *teams.Runtime, agent int64) (eng *engine.Engine, ok bool) {
+	if agent == followAgent {
+		if a := rt.Followed(); a != nil {
+			return a.Engine, true
+		}
+		return rt.Idle(), true
+	}
+	ag, ok := rt.AgentByID(agent)
+	if !ok {
+		return nil, false
+	}
+	return ag.Engine, true
+}
+
+// engine resolves the agent of a request and its engine, or writes the error response and returns false.
+func (a *API) engine(w http.ResponseWriter, r *http.Request, rt *teams.Runtime) (agent int64, eng *engine.Engine, ok bool) {
+	agent, err := agentParam(r)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err.Error())
+		return 0, nil, false
+	}
+	eng, ok = engineOf(rt, agent)
+	if !ok {
+		fail(w, http.StatusNotFound, "unknown agent")
+		return 0, nil, false
+	}
+	return agent, eng, true
+}
+
+// hub returns the SSE hub of a team and agent selector and starts it on first use.
+func (a *API) hub(rt *teams.Runtime, agent int64) *Hub {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	h, ok := a.hubs[rt.ID]
+	key := hubKey{rt.ID, agent}
+	h, ok := a.hubs[key]
 	if !ok {
-		h = &Hub{Engine: rt.Engine, Interval: a.Interval, Log: a.Log, Team: rt.ID}
-		a.hubs[rt.ID] = h
+		h = &Hub{Compute: func(ctx context.Context) (engine.State, error) {
+			eng, ok := engineOf(rt, agent)
+			if !ok {
+				return engine.State{}, errors.New("unknown agent")
+			}
+			return eng.Compute(ctx)
+		}, Interval: a.Interval, Log: a.Log, Team: rt.ID}
+		a.hubs[key] = h
 		if a.ctx != nil {
 			go h.Run(a.ctx)
 		}
@@ -167,7 +225,11 @@ func (a *API) getState(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	st, err := rt.Engine.Compute(r.Context())
+	_, eng, ok := a.engine(w, r, rt)
+	if !ok {
+		return
+	}
+	st, err := eng.Compute(r.Context())
 	if err != nil {
 		serverError(w, err)
 		return
@@ -284,12 +346,26 @@ func (a *API) putPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, rows)
 }
 
+// overrideAgent is the agent whose overrides a request reads or writes: the one named by ?agent=, otherwise the one
+// the request follows. Overrides of a team without any agent belong to agent 0.
+func (a *API) overrideAgent(w http.ResponseWriter, r *http.Request, rt *teams.Runtime) (int64, bool) {
+	_, eng, ok := a.engine(w, r, rt)
+	if !ok {
+		return 0, false
+	}
+	return eng.AgentID, true
+}
+
 func (a *API) getOverrides(w http.ResponseWriter, r *http.Request) {
 	rt, ok := a.team(w, r)
 	if !ok {
 		return
 	}
-	ov, err := rt.Store.GetOverrides(r.Context())
+	agent, ok := a.overrideAgent(w, r, rt)
+	if !ok {
+		return
+	}
+	ov, err := rt.Store.GetOverrides(r.Context(), agent)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -299,6 +375,10 @@ func (a *API) getOverrides(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) putOverride(w http.ResponseWriter, r *http.Request) {
 	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
+	agent, ok := a.overrideAgent(w, r, rt)
 	if !ok {
 		return
 	}
@@ -317,7 +397,7 @@ func (a *API) putOverride(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "value must be finite and not negative")
 		return
 	}
-	if err := rt.Store.SetOverride(r.Context(), key, body.Value); err != nil {
+	if err := rt.Store.SetOverride(r.Context(), agent, key, body.Value); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -329,12 +409,16 @@ func (a *API) deleteOverride(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	agent, ok := a.overrideAgent(w, r, rt)
+	if !ok {
+		return
+	}
 	key := r.PathValue("key")
 	if !store.ValidOverrideKey(key) {
 		fail(w, http.StatusNotFound, "unknown override key")
 		return
 	}
-	if err := rt.Store.DeleteOverride(r.Context(), key); err != nil {
+	if err := rt.Store.DeleteOverride(r.Context(), agent, key); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -352,7 +436,11 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
-	ch, cancel := a.hub(rt).Subscribe()
+	agent, eng, ok := a.engine(w, r, rt)
+	if !ok {
+		return
+	}
+	ch, cancel := a.hub(rt, agent).Subscribe()
 	defer cancel()
 
 	h := w.Header()
@@ -362,7 +450,7 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	// A new client gets the current state at once instead of waiting for the next tick.
-	if st, err := rt.Engine.Compute(r.Context()); err == nil {
+	if st, err := eng.Compute(r.Context()); err == nil {
 		if data, err := json.Marshal(st); err == nil {
 			writeEvent(w, data)
 		}
@@ -408,7 +496,8 @@ func writeEvent(w http.ResponseWriter, data []byte) error {
 
 // Hub computes the state once per interval and hands it to all SSE clients.
 type Hub struct {
-	Engine   *engine.Engine
+	// Compute builds the state to publish.
+	Compute  func(context.Context) (engine.State, error)
 	Interval time.Duration
 	// Log and Team are for the lines about a state that could not be computed.
 	Log  *slog.Logger
@@ -462,7 +551,7 @@ func (h *Hub) Run(ctx context.Context) {
 		if h.subscribers() == 0 {
 			continue
 		}
-		st, err := h.Engine.Compute(ctx)
+		st, err := h.Compute(ctx)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				if h.Log != nil && time.Since(h.warnedAt) > time.Minute {

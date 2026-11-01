@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -17,16 +18,103 @@ import (
 	"github.com/3lefeint/splash/backend/internal/store"
 )
 
-// Runtime is everything one team needs while the backend runs.
+// Runtime is everything one team needs while the backend runs. The live state and the engine exist once per agent,
+// not once per team: the members train independently, in the same or in different sessions.
 type Runtime struct {
 	ID int64
 	// Store sees only the data of this team (and the track data all teams share).
 	Store  store.Store
-	Live   *live.State
 	Cmds   *commands.Hub
-	Engine *engine.Engine
 	Ingest *ingest.Server
+
+	// ActiveWindow is how recent an agent's last sample must be to count as active in Followed; zero means 30 s.
+	ActiveWindow time.Duration
+
+	log     *slog.Logger
+	mu      sync.Mutex
+	agents  map[int64]*AgentRT
+	idle    *engine.Engine
+	engines func(ref ingest.AgentRef, lv *live.State) *engine.Engine
 }
+
+// AgentRT is the live state of one agent and the engine that computes from it.
+type AgentRT struct {
+	ID     int64
+	Name   string
+	Live   *live.State
+	Engine *engine.Engine
+}
+
+// Agent returns the runtime of an agent and creates it on first use. Agent 0 is the shared dev token.
+func (rt *Runtime) Agent(ref ingest.AgentRef) *AgentRT {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if a, ok := rt.agents[ref.ID]; ok {
+		return a
+	}
+	lv := &live.State{}
+	a := &AgentRT{ID: ref.ID, Name: ref.Name, Live: lv, Engine: rt.engines(ref, lv)}
+	rt.agents[ref.ID] = a
+	return a
+}
+
+// AgentByID returns the runtime of an agent that has connected since the backend started.
+func (rt *Runtime) AgentByID(id int64) (*AgentRT, bool) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	a, ok := rt.agents[id]
+	return a, ok
+}
+
+// Agents lists the agent runtimes, the one with the newest live sample first.
+func (rt *Runtime) Agents() []*AgentRT {
+	rt.mu.Lock()
+	out := make([]*AgentRT, 0, len(rt.agents))
+	for _, a := range rt.agents {
+		out = append(out, a)
+	}
+	rt.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool {
+		ti, tj := out[i].Live.Updated(), out[j].Live.Updated()
+		if !ti.Equal(tj) {
+			return ti.After(tj)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+// defaultActiveWindow is how recent the last live sample of an agent must be for it to count as active.
+const defaultActiveWindow = 30 * time.Second
+
+// Followed is the agent a request without an explicit agent shows: among the agents with a live sample in the last
+// 30 seconds the one with the lowest id, so that two agents driving at the same time do not make the view jump;
+// without an active agent the one with the newest sample. Nil when no agent has connected. It stands in until a
+// browser is tied to its own agent.
+func (rt *Runtime) Followed() *AgentRT {
+	list := rt.Agents() // newest sample first
+	if len(list) == 0 {
+		return nil
+	}
+	window := rt.ActiveWindow
+	if window <= 0 {
+		window = defaultActiveWindow
+	}
+	now := time.Now()
+	var best *AgentRT
+	for _, a := range list {
+		if now.Sub(a.Live.Updated()) <= window && (best == nil || a.ID < best.ID) {
+			best = a
+		}
+	}
+	if best == nil {
+		best = list[0]
+	}
+	return best
+}
+
+// Idle returns an engine without live data, for a team none of whose agents has connected yet.
+func (rt *Runtime) Idle() *engine.Engine { return rt.idle }
 
 // Registry creates the runtimes on demand and is safe for concurrent use.
 type Registry struct {
@@ -72,17 +160,24 @@ func (r *Registry) Get(id int64) *Runtime {
 
 func (r *Registry) build(id int64) *Runtime {
 	st := r.Dir.ForTeam(id)
-	lv := &live.State{}
 	cmds := commands.New()
-	eng := engine.New(st, lv)
-	eng.Commands = cmds
-	eng.Log = r.Log
-	ing := ingest.New(st, lv, r.Log)
+	ing := ingest.New(st, nil, r.Log)
 	ing.PingInterval, ing.DeadAfter, ing.TeamID = r.PingInterval, r.DeadAfter, id
 	ing.Maps = ingest.NewMapRecorder(st, r.Log)
 	ing.Cmds = cmds
 	ing.Pits = ingest.NewPitRecorder(st, r.Log)
 	ing.Field, ing.Own = &segments.Recorder{}, &segments.Recorder{}
-	eng.Field, eng.Own, eng.Pits = ing.Field, ing.Own, ing.Pits
-	return &Runtime{ID: id, Store: st, Live: lv, Cmds: cmds, Engine: eng, Ingest: ing}
+	// The recorders and the command hub are shared by the agents of the team; they are keyed by session and car.
+	newEngine := func(ref ingest.AgentRef, lv *live.State) *engine.Engine {
+		eng := engine.New(st, lv)
+		eng.AgentID, eng.AgentName = ref.ID, ref.Name
+		eng.Commands = cmds
+		eng.Log = r.Log
+		eng.Field, eng.Own, eng.Pits = ing.Field, ing.Own, ing.Pits
+		return eng
+	}
+	rt := &Runtime{ID: id, Store: st, Cmds: cmds, Ingest: ing, log: r.Log, agents: map[int64]*AgentRT{},
+		idle: newEngine(ingest.AgentRef{}, &live.State{}), engines: newEngine}
+	ing.LiveFor = func(ref ingest.AgentRef) *live.State { return rt.Agent(ref).Live }
+	return rt
 }
