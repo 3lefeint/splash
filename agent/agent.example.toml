@@ -9,7 +9,8 @@ cf_client_secret = ""
 [agent]
 # Stable id of this installation, for example "driver-pc". Leave it empty to use the name of this PC.
 id = ""
-# Durable messages (laps, events) are kept here until the backend acknowledged them.
+# Durable messages (laps, events) are kept here until the backend acknowledged them. Relative names count from the
+# folder of this file.
 spool_dir = "spool"
 # Optional: write every message to this NDJSON file (about 2-3 GB per 24 hours); usable with splash-replay.
 record_file = ""
