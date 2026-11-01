@@ -80,6 +80,7 @@
 - The fuel model and the lap time model learn from the laps of earlier sessions on the same track with the same team car, from the first lap of a session on: the driver's own laps first, the whole team's when they have too few; laps and sessions that were left out are skipped; the model panel says how many laps come from earlier sessions
 - Dashboard: while the layout is edited and no agent sends data, the tiles show invented example values, so they can be arranged without the game running
 - Dashboard: every tile has a gear with its text size (S, M, L) and switches for single lines, saved with the layout; the big numbers follow the size of the tile instead of the window
+- Dashboard map tile: the controls (overlay, target, opponents) moved into the gear of the tile; one line under the map keeps saying what the colour means
 
 ### Changed
 

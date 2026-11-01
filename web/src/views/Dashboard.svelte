@@ -2,6 +2,7 @@
   import CornerTile from '../components/CornerTile.svelte';
   import GridLayout from '../components/GridLayout.svelte';
   import MapControls from '../components/MapControls.svelte';
+  import MapLegend from '../components/MapLegend.svelte';
   import AgentsPanel from '../components/AgentsPanel.svelte';
   import AlertsPanel from '../components/AlertsPanel.svelte';
   import ModelPanel from '../components/ModelPanel.svelte';
@@ -80,7 +81,9 @@
   {/snippet}
 
   {#snippet gear(id: string)}
-    <TileGear {id} />
+    <TileGear {id}>
+      {#if id === 'map'}<MapControls />{/if}
+    </TileGear>
   {/snippet}
 
   <GridLayout tools={gear} items={dashboardLayout.visible} edit={dashboardLayout.edit} onchange={(i) => dashboardLayout.set(i)} onremove={(id) => dashboardLayout.hide(id)} removeLabel={t('layout.hide')}>
@@ -166,7 +169,7 @@
         <Tile id="map" {gear} title={t('map.title')}>
           <div class="mapbox"><TrackMap compact /></div>
           <div class="maprow">
-            <MapControls />
+            <MapLegend />
             <a href="#/map">{t('map.open')} →</a>
           </div>
         </Tile>
@@ -270,6 +273,6 @@
   .oppname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .opp .num:last-child { grid-column: 2 / 4; text-align: right; }
   .neutral { color: var(--muted); }
-  .maprow { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .maprow { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; gap: 12px; }
   .maprow a { color: var(--accent); white-space: nowrap; }
 </style>
