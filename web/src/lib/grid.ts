@@ -74,3 +74,38 @@ function settle(fixed: Item[], others: Item[]): Item[] {
 
 const order = (items: Item[], id: string) => items.findIndex((i) => i.id === id);
 const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(n, lo), hi);
+
+/**
+ * The places of named buttons on a grid of ``cols`` columns: stored places are kept (cut to the columns), buttons
+ * without one get 1 by 1 in the first free cell, buttons that are gone are dropped, and gaps are closed.
+ */
+export function fitItems(stored: Item[] | undefined, ids: string[], cols: number): Item[] {
+  const wanted = new Set(ids);
+  const out: Item[] = [];
+  for (const s of stored ?? []) {
+    if (!wanted.has(s.id) || out.some((o) => o.id === s.id)) continue;
+    const w = clamp(s.w, 1, cols);
+    out.push({ id: s.id, w, h: Math.max(s.h, 1), x: clamp(s.x, 0, cols - w), y: Math.max(s.y, 0) });
+  }
+  for (const id of ids) {
+    if (out.some((o) => o.id === id)) continue;
+    const item: Item = { id, x: 0, y: 0, w: 1, h: 1 };
+    search: for (let y = 0; ; y++) {
+      for (let x = 0; x < cols; x++) {
+        const at = { ...item, x, y };
+        if (!out.some((o) => overlaps(o, at))) {
+          out.push(at);
+          break search;
+        }
+      }
+    }
+  }
+  // Stored places may overlap after the columns shrank: the later ones yield.
+  return compact(out).sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+}
+
+/** Height in pixels of one row when ``rows`` rows share ``height`` pixels with a gap between them, but not below ``min``. */
+export function rowPixels(height: number, rows: number, gap: number, min: number, fallback: number): number {
+  if (height <= 0 || rows <= 0) return fallback;
+  return Math.max((height + gap) / rows - gap, min);
+}

@@ -1,6 +1,10 @@
 <script lang="ts">
   import { applyPitSetup, deletePitSetup, getPitSetups, pitRequest, putPitSetup } from '../lib/api';
+  import { DEMO_SETUPS } from '../lib/demo';
+  import { fitItems, type Item } from '../lib/grid';
+  import { dashboardLayout } from '../lib/layout.svelte';
   import { EXAMPLES, stepFromRow, stepText } from '../lib/setups';
+  import GridLayout from './GridLayout.svelte';
   import { tileInfo } from '../lib/info.svelte';
   import { setupsUi } from '../lib/setups.svelte';
   import { t } from '../lib/settings.svelte';
@@ -16,6 +20,10 @@
   let editing = $state<PitSetup | null>(null);
 
   async function load(): Promise<void> {
+    if (view.demo) {
+      setups = DEMO_SETUPS;
+      return;
+    }
     if (!car) {
       setups = [];
       return;
@@ -31,8 +39,20 @@
 
   $effect(() => {
     car;
+    view.demo;
     void load();
   });
+
+  // The buttons sit on a grid whose places are kept by name in the layout of the dashboard.
+  const columns = $derived(dashboardLayout.optionsOf('setups').columns ?? 2);
+  const names = $derived(setups.map((s) => s.name));
+  const places = $derived(fitItems(dashboardLayout.optionsOf('setups').grid, names, columns));
+  const byName = $derived(new Map(setups.map((s) => [s.name, s])));
+  function placed(items: Item[]): void {
+    // Places of buttons that are not shown now (another car, example buttons) stay as they are.
+    const rest = (dashboardLayout.optionsOf('setups').grid ?? []).filter((g) => !names.includes(g.id));
+    dashboardLayout.setOption('setups', { grid: [...rest, ...items] });
+  }
 
   async function run(fn: () => Promise<unknown>): Promise<void> {
     busy = true;
@@ -151,21 +171,26 @@
     <p class="muted">{t('setups.none')}</p>
     <button disabled={busy} onclick={addExamples}>{t('setups.examples')}</button>
   {:else}
-    <div class="grid">
-      {#each setups as s (s.name)}
-        <button
-          class="setup"
-          disabled={busy || command?.state === 'pending'}
-          onpointerdown={() => pressStart(s)}
-          onpointerup={() => pressEnd(s)}
-          onpointerleave={pressCancel}
-          onpointercancel={pressCancel}
-          oncontextmenu={(e) => { e.preventDefault(); editing = copy(s); }}
-        >
-          <b>{s.name}</b>
-          <span class="muted small">{s.steps.map(stepText).join(', ')}</span>
-        </button>
-      {/each}
+    <div class="stage">
+      <GridLayout items={places} cols={columns} fit edit={setupsUi.arrange} minWidth={0} minW={1} minRow={44} rowHeight={60} gap={8} onchange={placed}>
+        {#snippet cell(id)}
+          {@const s = byName.get(id)}
+          {#if s}
+            <button
+              class="setup"
+              disabled={busy || command?.state === 'pending'}
+              onpointerdown={() => pressStart(s)}
+              onpointerup={() => pressEnd(s)}
+              onpointerleave={pressCancel}
+              onpointercancel={pressCancel}
+              oncontextmenu={(e) => { e.preventDefault(); editing = copy(s); }}
+            >
+              <b>{s.name}</b>
+              <span class="muted small">{s.steps.map(stepText).join(', ')}</span>
+            </button>
+          {/if}
+        {/snippet}
+      </GridLayout>
     </div>
   {/if}
   <div class="row">
@@ -183,13 +208,17 @@
 {#if error}<p class="err">{error}</p>{/if}
 
 <style>
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: 8px; }
+  .stage { flex: 1; min-height: 0; }
   .setup {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
-    padding: 10px 12px;
+    gap: 2px;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    justify-content: center;
+    padding: 6px 10px;
     text-align: left;
     background: var(--surface-2);
     border: 1px solid var(--border);
@@ -206,7 +235,8 @@
   .form input { min-width: 0; width: 100%; box-sizing: border-box; }
   .step { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
   .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
-  .small { font-size: 0.8rem; margin: 0; }
+  .small { font-size: 0.8em; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+  .setup b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
   .status { margin: 8px 0 0; font-size: 0.9rem; }
   .status.failed, .err { color: var(--bad, #e5534b); }
   .status.done { color: var(--good, #3fb950); }
