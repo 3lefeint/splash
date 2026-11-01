@@ -56,6 +56,9 @@ type memTeam struct {
 	setups    []PitSetup
 	wears     map[lapKey]wear.LapWear
 	sessions  map[string]SessionInfo
+	cars      map[int64]*TeamCar
+	carNames  map[string]int64 // vehicle name -> team car id
+	nextCar   int64
 	conds     map[lapKey]LapConditions
 	weather   map[string][]WeatherPoint
 }
@@ -72,6 +75,8 @@ func newMemTeam() *memTeam {
 		laps:      map[lapKey]wire.Lap{},
 		lapAgent:  map[lapKey]int64{},
 		sessions:  map[string]SessionInfo{},
+		cars:      map[int64]*TeamCar{},
+		carNames:  map[string]int64{},
 		conds:     map[lapKey]LapConditions{},
 		weather:   map[string][]WeatherPoint{},
 		progress:  map[string]int64{},
@@ -237,8 +242,105 @@ func (m *Memory) LapsOfCar(_ context.Context, sessionID string, carID int, vehic
 func (m *Memory) GetParams(_ context.Context, track, car string) (Params, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	p, ok := m.params[track+"|"+car]
+	canon := m.canonical(car)
+	if p, ok := m.params[track+"|"+canon]; ok {
+		return p, true, nil
+	}
+	p, ok := m.params[track+"|"+car] // a set stored before the car had a team car
 	return p, ok, nil
+}
+
+// canonical is CanonicalCar for a caller that holds the lock.
+func (m *Memory) canonical(vehicleName string) string {
+	if id, ok := m.carNames[vehicleName]; ok {
+		return m.cars[id].Name
+	}
+	return vehicleName
+}
+
+func (m *Memory) CanonicalCar(_ context.Context, vehicleName string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.canonical(vehicleName), nil
+}
+
+func (m *Memory) Cars(_ context.Context) ([]TeamCar, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]TeamCar, 0, len(m.cars))
+	for _, c := range m.cars {
+		car := TeamCar{ID: c.ID, Name: c.Name, Names: []string{}}
+		for name, id := range m.carNames {
+			if id == c.ID {
+				car.Names = append(car.Names, name)
+			}
+		}
+		sort.Strings(car.Names)
+		out = append(out, car)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (m *Memory) CreateCar(_ context.Context, name string) (TeamCar, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, c := range m.cars {
+		if c.Name == name {
+			return TeamCar{}, ErrExists
+		}
+	}
+	m.nextCar++
+	c := &TeamCar{ID: m.nextCar, Name: name, Names: []string{}}
+	m.cars[c.ID] = c
+	return *c, nil
+}
+
+func (m *Memory) DeleteCar(_ context.Context, id int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.cars[id]; !ok {
+		return ErrNoCar
+	}
+	delete(m.cars, id)
+	for name, cid := range m.carNames {
+		if cid == id {
+			delete(m.carNames, name)
+		}
+	}
+	return nil
+}
+
+func (m *Memory) MapCarName(_ context.Context, id int64, vehicleName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.cars[id]; !ok {
+		return ErrNoCar
+	}
+	m.carNames[vehicleName] = id
+	return nil
+}
+
+func (m *Memory) UnmapCarName(_ context.Context, vehicleName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.carNames, vehicleName)
+	return nil
+}
+
+func (m *Memory) UnmappedCarNames(_ context.Context) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := map[string]bool{}
+	out := []string{}
+	for _, s := range m.sessions {
+		if _, mapped := m.carNames[s.Car]; s.Car != "" && !mapped && !seen[s.Car] {
+			seen[s.Car] = true
+			out = append(out, s.Car)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 func (m *Memory) ListParams(_ context.Context) ([]Params, error) {
@@ -260,6 +362,7 @@ func (m *Memory) ListParams(_ context.Context) ([]Params, error) {
 func (m *Memory) SetParams(_ context.Context, p Params) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	p.Car = m.canonical(p.Car)
 	m.params[p.Track+"|"+p.Car] = p.WithDefaults()
 	return nil
 }
@@ -396,10 +499,19 @@ func (m *Memory) AddStopped(_ context.Context, sessionID string, carID int, vehi
 func (m *Memory) PitSetups(_ context.Context, car string) ([]PitSetup, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	canon := m.canonical(car)
 	out := []PitSetup{}
-	for _, s := range m.setups {
-		if s.Car == car {
-			out = append(out, s)
+	seen := map[string]bool{}
+	// Set-ups stored before the car had a team car are still under the vehicle name; a set-up of the team car wins.
+	for _, name := range []string{canon, car} {
+		for _, s := range m.setups {
+			if s.Car == name && !seen[s.Name] {
+				seen[s.Name] = true
+				out = append(out, s)
+			}
+		}
+		if canon == car {
+			break
 		}
 	}
 	return out, nil
@@ -408,6 +520,7 @@ func (m *Memory) PitSetups(_ context.Context, car string) ([]PitSetup, error) {
 func (m *Memory) SavePitSetup(_ context.Context, s PitSetup) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	s.Car = m.canonical(s.Car)
 	for i, old := range m.setups {
 		if old.Car == s.Car && old.Name == s.Name {
 			m.setups[i] = s
@@ -421,12 +534,15 @@ func (m *Memory) SavePitSetup(_ context.Context, s PitSetup) error {
 func (m *Memory) DeletePitSetup(_ context.Context, car, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for i, old := range m.setups {
-		if old.Car == car && old.Name == name {
-			m.setups = append(m.setups[:i], m.setups[i+1:]...)
-			break
+	canon := m.canonical(car)
+	kept := m.setups[:0]
+	for _, old := range m.setups {
+		if (old.Car == canon || old.Car == car) && old.Name == name {
+			continue
 		}
+		kept = append(kept, old)
 	}
+	m.setups = kept
 	return nil
 }
 

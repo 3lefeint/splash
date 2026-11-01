@@ -416,3 +416,16 @@ export interface AgentInfo {
   last_seen: string | null;
   session_id?: string;
 }
+
+/** A car as the team calls it, with the game's vehicle names (liveries) that belong to it. */
+export interface TeamCar {
+  id: number;
+  name: string;
+  names: string[];
+}
+
+export interface TeamCars {
+  cars: TeamCar[];
+  /** Vehicle names seen in sessions that belong to no team car. */
+  unmapped: string[];
+}

@@ -30,6 +30,11 @@ func (a *API) registerAdmin(h func(string, http.HandlerFunc)) {
 	h("POST /api/admin/agents", a.adminOnly(a.adminCreateAgent))
 	h("PUT /api/admin/agents/{id}", a.adminOnly(a.adminSetAgentEmail))
 	h("POST /api/admin/agents/{id}/revoke", a.adminOnly(a.adminRevokeAgent))
+	h("GET /api/admin/cars", a.adminOnly(a.adminCars))
+	h("POST /api/admin/cars", a.adminOnly(a.adminCreateCar))
+	h("DELETE /api/admin/cars/{id}", a.adminOnly(a.adminDeleteCar))
+	h("PUT /api/admin/cars/{id}/names", a.adminOnly(a.adminMapCarName))
+	h("DELETE /api/admin/car-names", a.adminOnly(a.adminUnmapCarName))
 }
 
 // adminOnly lets only members with the admin flag through. Without authentication nobody is an administrator.
@@ -321,5 +326,154 @@ func (a *API) adminRevokeAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.adminLog(r, "agent_revoked", "agent_id", id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+const maxCarName = 120
+
+// carsOfTeam resolves ?team_id= (or a team_id in the body) to the store of that team, or writes the error response.
+func (a *API) carsOfTeam(w http.ResponseWriter, r *http.Request, raw string) (store.Store, bool) {
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		fail(w, http.StatusBadRequest, "team_id is required")
+		return nil, false
+	}
+	teams, err := a.Teams.Dir.Teams(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return nil, false
+	}
+	for _, t := range teams {
+		if t.ID == id {
+			return a.Teams.Get(id).Store, true
+		}
+	}
+	fail(w, http.StatusBadRequest, "unknown team")
+	return nil, false
+}
+
+// adminCars lists the team cars of a team and the vehicle names seen in its sessions that belong to none.
+func (a *API) adminCars(w http.ResponseWriter, r *http.Request) {
+	st, ok := a.carsOfTeam(w, r, r.URL.Query().Get("team_id"))
+	if !ok {
+		return
+	}
+	cars, err := st.Cars(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	unmapped, err := st.UnmappedCarNames(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Cars     []store.TeamCar `json:"cars"`
+		Unmapped []string        `json:"unmapped"`
+	}{cars, unmapped})
+}
+
+func (a *API) adminCreateCar(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TeamID int64  `json:"team_id"`
+		Name   string `json:"name"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	st, ok := a.carsOfTeam(w, r, strconv.FormatInt(req.TeamID, 10))
+	if !ok {
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" || len(req.Name) > maxCarName {
+		fail(w, http.StatusBadRequest, "a car name of at most 120 characters is required")
+		return
+	}
+	c, err := st.CreateCar(r.Context(), req.Name)
+	if errors.Is(err, store.ErrExists) {
+		fail(w, http.StatusConflict, "the team has a car with this name")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	a.adminLog(r, "car_created", "team_id", req.TeamID, "car_id", c.ID)
+	writeJSON(w, http.StatusCreated, c)
+}
+
+func (a *API) adminDeleteCar(w http.ResponseWriter, r *http.Request) {
+	st, ok := a.carsOfTeam(w, r, r.URL.Query().Get("team_id"))
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		fail(w, http.StatusBadRequest, "invalid car id")
+		return
+	}
+	switch err := st.DeleteCar(r.Context(), id); {
+	case errors.Is(err, store.ErrNoCar):
+		fail(w, http.StatusNotFound, "unknown car")
+	case err != nil:
+		serverError(w, err)
+	default:
+		a.adminLog(r, "car_deleted", "car_id", id)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// adminMapCarName assigns a vehicle name of the game to a team car, moving it from another one.
+func (a *API) adminMapCarName(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TeamID      int64  `json:"team_id"`
+		VehicleName string `json:"vehicle_name"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	st, ok := a.carsOfTeam(w, r, strconv.FormatInt(req.TeamID, 10))
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		fail(w, http.StatusBadRequest, "invalid car id")
+		return
+	}
+	req.VehicleName = strings.TrimSpace(req.VehicleName)
+	if req.VehicleName == "" || len(req.VehicleName) > maxCarName {
+		fail(w, http.StatusBadRequest, "a vehicle name of at most 120 characters is required")
+		return
+	}
+	switch err := st.MapCarName(r.Context(), id, req.VehicleName); {
+	case errors.Is(err, store.ErrNoCar):
+		fail(w, http.StatusNotFound, "unknown car")
+	case err != nil:
+		serverError(w, err)
+	default:
+		a.adminLog(r, "car_name_mapped", "team_id", req.TeamID, "car_id", id)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (a *API) adminUnmapCarName(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	st, ok := a.carsOfTeam(w, r, q.Get("team_id"))
+	if !ok {
+		return
+	}
+	name := strings.TrimSpace(q.Get("name"))
+	if name == "" {
+		fail(w, http.StatusBadRequest, "a vehicle name is required")
+		return
+	}
+	if err := st.UnmapCarName(r.Context(), name); err != nil {
+		serverError(w, err)
+		return
+	}
+	a.adminLog(r, "car_name_unmapped", "team_id", q.Get("team_id"))
 	w.WriteHeader(http.StatusNoContent)
 }

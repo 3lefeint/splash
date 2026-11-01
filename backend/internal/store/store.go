@@ -51,6 +51,9 @@ type AuditEntry struct {
 // ErrExists is returned when a team name or a token hash is already taken.
 var ErrExists = errors.New("already exists")
 
+// ErrNoCar is returned when a team car does not exist.
+var ErrNoCar = errors.New("unknown car")
+
 // ErrNoAgent is returned when an agent does not exist.
 var ErrNoAgent = errors.New("unknown agent")
 
@@ -191,6 +194,23 @@ type Store interface {
 	SavePitSetup(ctx context.Context, s PitSetup) error
 	DeletePitSetup(ctx context.Context, car, name string) error
 
+	// Cars lists the team cars with the vehicle names assigned to them.
+	Cars(ctx context.Context) ([]TeamCar, error)
+	// CreateCar adds a team car and returns ErrExists when the name is taken.
+	CreateCar(ctx context.Context, name string) (TeamCar, error)
+	// DeleteCar removes a team car and the assignments of its names; ErrNoCar when it does not exist. Parameters and
+	// set-ups stored under its name stay.
+	DeleteCar(ctx context.Context, id int64) error
+	// MapCarName assigns a vehicle name to a team car, moving it from another one; ErrNoCar for an unknown car.
+	MapCarName(ctx context.Context, id int64, vehicleName string) error
+	// UnmapCarName takes a vehicle name away from its team car.
+	UnmapCarName(ctx context.Context, vehicleName string) error
+	// UnmappedCarNames lists the vehicle names seen in sessions of the team that belong to no team car.
+	UnmappedCarNames(ctx context.Context) ([]string, error)
+	// CanonicalCar is the name parameters and set-ups are stored under: the team car of the vehicle name, or the
+	// vehicle name itself when it belongs to none. Parameters and set-ups are read and written through it.
+	CanonicalCar(ctx context.Context, vehicleName string) (string, error)
+
 	// TouchSession records that a session is running: it is created on first sight, later calls keep its start and
 	// update the last sign of life and the fields that are not empty.
 	TouchSession(ctx context.Context, s SessionInfo) error
@@ -248,6 +268,13 @@ func mergeLap(old, n wire.Lap) wire.Lap {
 	out.InLap = old.InLap || n.InLap
 	out.OutLap = old.OutLap || n.OutLap
 	return out
+}
+
+// TeamCar is a car as the team calls it, with the vehicle names (liveries) of the game that belong to it.
+type TeamCar struct {
+	ID    int64    `json:"id"`
+	Name  string   `json:"name"`
+	Names []string `json:"names"`
 }
 
 // PitSetup is a named list of pit menu rows to set, e.g. maximum fuel and medium tyres.
