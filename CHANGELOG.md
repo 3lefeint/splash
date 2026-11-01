@@ -81,6 +81,7 @@
 - Dashboard: while the layout is edited and no agent sends data, the tiles show invented example values, so they can be arranged without the game running
 - Dashboard: every tile has a gear with its text size (S, M, L) and switches for single lines, saved with the layout; the big numbers follow the size of the tile instead of the window
 - Dashboard map tile: the controls (overlay, target, opponents) moved into the gear of the tile; one line under the map keeps saying what the colour means
+- Tyre tile: a brake disc in each tyre coloured by its temperature with the number along it (working range in the settings), the compound of each axle on the car, a smaller car body, and an "i" button with a drawing that names every value of a wheel
 
 ### Changed
 

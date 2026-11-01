@@ -227,6 +227,14 @@
     <button type="button" onclick={() => { settings.tyreRanges.push({ name: '', low: 80, high: 100 }); settings.save(); }}>{t('set.tyreAdd')}</button>
     <button type="button" onclick={() => settings.resetTyreRanges()}>{t('set.tyreReset')}</button>
   </div>
+  <h2>{t('set.brake')}</h2>
+  <p class="muted">{t('set.brakeHelp')}</p>
+  <div class="range">
+    <input type="number" step="10" bind:value={settings.brakeRange.low} onchange={() => settings.save()} aria-label={t('set.tyreLow')} />
+    <span class="muted">–</span>
+    <input type="number" step="10" bind:value={settings.brakeRange.high} onchange={() => settings.save()} aria-label={t('set.tyreHigh')} />
+    <span class="muted">°C</span>
+  </div>
 </section>
 
 <style>

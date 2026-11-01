@@ -23,8 +23,10 @@ describe('the tyre temperature tile', () => {
       settings.lang = lang;
       const out = render(TyreTemps).body;
       for (const name of ['FL', 'FR', 'RL', 'RR']) expect(out).toContain(`>${name}</text>`);
-      expect(out.match(/<text/g)?.length).toBe(20); // four tyres, five texts each
-      expect(out).not.toMatch(/Range|Bereich|Brakes|Bremsen|Water|Wasser|Medium|pressure|Druck|class="info/);
+      expect(out.match(/<text/g)?.length).toBe(26); // four tyres, six texts each (the disc has its number), two compounds
+      expect(out.match(/>400°</g)?.length).toBe(4);
+      expect(out.match(/>Medium</g)?.length).toBe(2); // one compound label per axle
+      expect(out).not.toMatch(/Range|Bereich|Brakes|Bremsen|Water|Wasser|pressure|Druck|class="info/);
     });
   }
   it('says there is no data without tyre temperatures', () => {

@@ -71,3 +71,15 @@ describe('rangeFor', () => {
     expect(windowOf(85, 105)).toEqual({ cold: 65, low: 85, high: 105, hot: 125 });
   });
 });
+
+describe('brake window', () => {
+  it('blends over a wider stretch than a tyre window', async () => {
+    const { windowOf, BRAKE_MARGIN, DEFAULT_BRAKE, tempColor } = await import('./conditions');
+    const w = windowOf(DEFAULT_BRAKE.low, DEFAULT_BRAKE.high, BRAKE_MARGIN);
+    expect(w).toEqual({ cold: 150, low: 300, high: 700, hot: 850 });
+    expect(tempColor(500, w)).toBe('hsl(130 70% 45%)');
+    expect(tempColor(100, w)).toBe('hsl(215 70% 45%)');
+    expect(tempColor(900, w)).toBe('hsl(0 70% 45%)');
+    expect(windowOf(80, 100).cold).toBe(60);
+  });
+});

@@ -34,7 +34,7 @@
   <header>
     <h2>{title}</h2>
     <span class="tools">
-      {#if info.list.length > 0}<InfoButton texts={info.list} />{/if}
+      {#if info.list.length > 0 || info.figure}<InfoButton texts={info.list} figure={info.figure} />{/if}
       {#if action}{@render action()}{/if}
       {#if gear && id && !dashboardLayout.edit}{@render gear(id ?? '')}{/if}
     </span>
