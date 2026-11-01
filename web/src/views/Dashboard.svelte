@@ -273,6 +273,7 @@
   .mapbox { flex: 1; min-height: 160px; min-width: 0; display: flex; }
   :global(.tile.compact) .big { font-size: clamp(1.4rem, 9cqw, 2.4rem); }
   :global(.tile.value) .big { font-size: clamp(1.6rem, 24cqw, 5rem); }
+:global(.tile.compact) .num div { display: inline; margin-left: 0.6em; }
   :global(.tile.compact) .name { font-size: 1.05em; }
   .big { font-size: clamp(2rem, 16cqw, 4.6rem); font-weight: 700; line-height: 1.05; }
   .unit { font-size: 0.4em; margin-left: 4px; color: var(--muted); font-weight: 500; }

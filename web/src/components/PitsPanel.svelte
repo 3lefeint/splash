@@ -4,6 +4,7 @@
   import { applySuggestion, differs } from '../lib/pits';
   import { tileInfo } from '../lib/info.svelte';
   import type { Key } from '../lib/i18n';
+  import { dashboardLayout } from '../lib/layout.svelte';
   import { t } from '../lib/settings.svelte';
   import { view } from '../lib/view.svelte';
 
@@ -40,7 +41,7 @@
       </tr>
     </thead>
     <tbody>
-      {#each p.rows ?? [] as r (r.no)}
+      {#each [...(p.rows ?? [])].reverse() as r (r.no)}
         <tr>
           <td>{r.no}</td>
           <td class="num">{sec(r.stopped)} s</td>
@@ -60,7 +61,7 @@
     </tbody>
   </table>
 
-  {#if sug && params}
+  {#if sug && params && dashboardLayout.shows('pits', 'suggest')}
     <h3>{t('pits.suggest')}</h3>
     <ul class="sug">
       {#if sug.pit_through != null}<li><span>{t('pits.through')}</span><b class="num">{fixed(sug.pit_through, 1)} s</b><span class="muted">({fixed(params.pit_through_green, 1)})</span></li>{/if}

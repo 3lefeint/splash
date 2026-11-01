@@ -3,6 +3,7 @@
   import { fixed } from '../lib/format';
   import { tileInfo } from '../lib/info.svelte';
   import { excludedByReason, fitSettingsFor } from '../lib/fit';
+  import { dashboardLayout } from '../lib/layout.svelte';
   import { t } from '../lib/settings.svelte';
   import { applyFit, fitDiffers } from '../lib/strategy';
   import { view } from '../lib/view.svelte';
@@ -74,8 +75,10 @@
     <div class="muted small">{t(fit.scope === 'team' ? 'model.history.team' : 'model.history.driver', { n: fit.history_laps })}</div>
   {/if}
   {#if fit.r2 < WEAK}<p class="weak">{t('model.weak')}</p>{/if}
-  <button class="primary" disabled={!canApply || busy} onclick={apply}>{t('model.apply')}</button>
-  {#if error}<p class="err">{error}</p>{/if}
+  {#if dashboardLayout.shows('model', 'apply')}
+    <button class="primary" disabled={!canApply || busy} onclick={apply}>{t('model.apply')}</button>
+    {#if error}<p class="err">{error}</p>{/if}
+  {/if}
 {/if}
 
 <style>

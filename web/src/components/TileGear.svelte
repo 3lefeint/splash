@@ -8,10 +8,16 @@
   import type { Key } from '../lib/i18n';
   import { dashboardLayout } from '../lib/layout.svelte';
   import { t } from '../lib/settings.svelte';
-  import { MODES, TILE_LINES } from '../lib/tiles';
+  import { MODES, MODE_TILES, TILE_LINES } from '../lib/tiles';
 
   /** The gear of a dashboard tile: a panel at the edge of the window, away from the tile, so the tile stays in view. */
   let { id, children }: { id: string; children?: Snippet } = $props();
+
+  /** Moves the panel to the body, out of the stacking order of the tile and below no header. */
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return { destroy: () => node.remove() };
+  }
 
   let button = $state<HTMLButtonElement>();
   let side = $state<'left' | 'right'>('right');
@@ -50,12 +56,12 @@
   </svg>
 </button>
 {#if open}
-  <div class="pop {side}" role="dialog" aria-label={t('tile.gear')}>
+  <div use:portal class="pop {side}" role="dialog" aria-label={t('tile.gear')}>
     <div class="head">
       <b>{t('tile.gear')}</b>
       <button class="close" onclick={() => (ui.open = null)} aria-label={t('tile.close')} title={t('tile.close')}>×</button>
     </div>
-    {#if lines.length}<div class="group">
+    {#if MODE_TILES.has(id)}<div class="group">
       <span class="label">{t('tile.mode')}</span>
       <span class="sizes">
         {#each MODES as mode (mode)}
@@ -86,7 +92,7 @@
   }
   .gear:hover, .gear.on { color: var(--accent); border-color: var(--accent); }
   .pop {
-    position: fixed; z-index: 50; top: 64px; bottom: 12px; width: min(300px, calc(100vw - 24px)); overflow: auto;
+    position: fixed; z-index: 100; top: 12px; bottom: 12px; width: min(300px, calc(100vw - 24px)); overflow: auto;
     display: flex; flex-direction: column; gap: 12px; align-content: flex-start;
     background: var(--surface-2); color: var(--text); border: 1px solid var(--accent); border-radius: 10px;
     padding: 10px 12px; font-size: 0.85rem; line-height: 1.4; box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);

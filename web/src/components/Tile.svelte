@@ -58,11 +58,11 @@
   /* The numbers inside follow the width of the tile, not of the window. */
   .body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; container-type: inline-size; }
   /* One line: small title, the values side by side. */
-  .tile.compact { padding: 8px 12px; gap: 2px; }
+  .tile.compact { padding: 8px 12px; gap: 2px; overflow: hidden; }
   .tile.compact h2 { font-size: 0.65rem; }
   .tile.compact .body { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 0; }
   /* Only the first value; the title is hidden and the tools sit in the corner. */
-  .tile.value { padding: 6px 10px; }
+  .tile.value { padding: 6px 10px; overflow: hidden; }
   .tile.value header { position: absolute; top: 4px; right: 6px; opacity: 0.7; z-index: 1; }
   .tile.value h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .tile.value .body > :global(:not(:first-child)) { display: none; }
