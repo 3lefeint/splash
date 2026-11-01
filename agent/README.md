@@ -52,6 +52,23 @@ the full path of the program and of the configuration; the agent corrects it at 
 Relative file names in `agent.toml` (`spool_dir`, `record_file`, `raw_file`) count from the folder of the configuration, not
 from the folder the program is started in, because Windows starts autostart entries somewhere else.
 
+## Updates
+
+The single-file Windows build looks for a newer agent release on GitHub (tags `agent-vX.Y.Z`, see the main README) at
+every start and then every `update.check_hours` (default 6). A newer release is downloaded next to the program, checked
+against its `splash-agent.exe.sha256` and swapped in; the old file stays as `splash-agent.exe.old` until the next start. At
+a start the new version replaces the old one before anything else. While the game runs the update waits until the game
+time has stood still for two minutes (paused, in a menu or closed), so a session is never interrupted. The agent then
+restarts itself in a new window with the same arguments and sends what the spool still holds.
+
+`splash-agent update check` says whether a newer release exists, `splash-agent update install` installs it now. A source
+install (`pip install .`) never updates itself. `[update] enabled = false` in `agent.toml` turns it off, `repo` and
+`check_hours` change where and how often it looks.
+
+The checksum comes from the same release as the program, so it protects against a damaged download, not against a release
+that was replaced by somebody with access to the repository. Only https addresses below `github.com/<repo>/releases/download/`
+are used.
+
 ## Yellow flags
 
 The agent passes on the three sector flags it already reads and, per vehicle, `sector`, `flag` (only when not 0) and

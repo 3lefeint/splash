@@ -64,6 +64,7 @@
 - Yellow flags: the sector flag only says there is a yellow; cars almost standing still in a flagged sector (not in the pits) are marked as probable causes on the map and in the rivals list, and an alert line shows the nearest one ahead with distance and corner ("Yellow in 340 m, before <corner>") or "Yellow, cause unknown"; two independent settings for the alert line and the markers; the agent adds the sector of the cars to the scoring message (the backend must be updated first)
 - Audit log of all write requests (time, e-mail, team, method, path)
 - Rate limits per identity on write requests, SSE streams and agent connections (`SPLASH_RATE_WRITES_PER_MIN`, `SPLASH_RATE_CONNECTS_PER_MIN`), answered with 429 and `Retry-After`
+- Agent: the single-file Windows build updates itself from the GitHub releases `agent-vX.Y.Z` (checked against the SHA-256 of the release), at a start or while the game is idle, never in the middle of a session; `splash-agent update check|install`, settings in `[update]`
 - Agent: at the first interactive start it asks once whether to start with Windows (entry in the Run key of the current user), `splash-agent autostart on|off|status` changes it later
 - Release flow with two tag series: `v*` builds the backend image, `agent-v*` publishes the Windows agent as a GitHub release with a SHA-256 checksum
 - Each lap stores the agent whose token delivered it (`laps.agent_id`), taken from the token and not from the agent id in the message

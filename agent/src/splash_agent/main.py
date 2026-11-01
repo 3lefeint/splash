@@ -5,10 +5,11 @@ import asyncio
 import logging
 import sys
 import time
+from pathlib import Path
 from typing import Callable
 from urllib.parse import urlsplit
 
-from . import __version__, autostart, logsetup
+from . import __version__, autostart, logsetup, update
 from . import convert as cv
 from . import pitmenu, reader, structs as S
 from .config import Config, ConfigError, load
@@ -25,6 +26,7 @@ STATUS_EVERY = 30.0  # seconds between status lines
 SPOOL_WARN = 500  # unacknowledged messages that count as a backlog worth a warning
 PAUSED_AFTER = 3.0  # seconds without game time progress after which the game counts as paused
 PIT_INFO_RETRY = 10.0  # seconds between attempts to open the optional pit menu buffer
+FIRST_UPDATE_CHECK = 300.0  # seconds after the start of the polling before the first look for a newer release
 
 
 class Agent:
@@ -34,8 +36,12 @@ class Agent:
                  link_factory: Callable[[Spool], object] | None = None,
                  pit_info: reader.MappedBuffer | None = None,
                  open_pit_info: Callable[[], reader.MappedBuffer] | None = None,
-                 open_hw_control: Callable[[], reader.HWControl] | None = None):
+                 open_hw_control: Callable[[], reader.HWControl] | None = None,
+                 updater: update.Updater | None = None):
         self.cfg, self.scoring, self.telemetry = cfg, scoring, telemetry
+        self.updater = updater
+        self.restart_for_update = False  # run() ended because a downloaded update is to be installed
+        self._update_task: asyncio.Task | None = None
         self.pit_info, self._open_pit_info = pit_info, open_pit_info
         self._open_hw_control = open_hw_control or reader.open_hw_control
         self._hw: reader.HWControl | None = None
@@ -247,6 +253,8 @@ class Agent:
             self._record.write(line + "\n")
 
     def close(self) -> None:
+        if self._update_task is not None:
+            self._update_task.cancel()
         self._stop_link()
         self.spool.close()
         if self._record is not None:
@@ -280,11 +288,32 @@ class Agent:
                   (self.frames["telemetry"] - t1) / dt)
         self._rate_mark = (now, self.frames["scoring"], self.frames["telemetry"])
 
+    def _update_due(self, now: float) -> bool:
+        """A downloaded update is installed once the game has been idle for a while: paused, in a menu or closed."""
+        return (self.updater is not None and self.updater.ready is not None and self._last_et is not None
+                and now - self._last_et_change >= update.IDLE_BEFORE_RESTART)
+
+    async def _update_loop(self) -> None:
+        await asyncio.sleep(FIRST_UPDATE_CHECK)
+        while True:
+            try:
+                await asyncio.to_thread(self.updater.check_and_download)
+            except Exception as e:
+                log.warning("update check failed: %s", e)
+            await asyncio.sleep(self.cfg.update_check_hours * 3600)
+
     async def run(self) -> None:
         scoring_every, telemetry_every = 1 / self.cfg.scoring_hz, 1 / self.cfg.telemetry_hz
         next_scoring = next_telemetry = next_status = next_pit_info = time.monotonic()
+        if self.updater is not None:
+            self._update_task = asyncio.get_running_loop().create_task(self._update_loop())
         while True:
             now = time.monotonic()
+            if self._update_due(now):
+                log.info("the game has been idle for %.0f s, restarting to install agent %s",
+                         now - self._last_et_change, self.updater.ready.text)
+                self.restart_for_update = True
+                return
             if now >= next_status:
                 log.info("status: %s", self.status())
                 self._status_checks(now)
@@ -340,8 +369,11 @@ def cmd_run(args) -> int:
              __version__, _server_summary(cfg.url), cfg.agent_id, "set" if cfg.cf_client_id else "not set",
              cfg.log_level.upper(), cfg.spool_dir)
     autostart.offer(cfg.spool_dir, args.config)
+    updater = _updater(cfg)
+    if updater is not None and updater.update_at_start(sys.argv[1:]):
+        return 0  # the new version runs in its own window
     scoring, telemetry = _open_buffers()
-    agent = Agent(cfg, scoring, telemetry,
+    agent = Agent(cfg, scoring, telemetry, updater=updater,
                   open_pit_info=lambda: reader.open_windows_buffer(S.PitInfoBuffer, S.PIT_INFO_FILE))
 
     async def main():
@@ -354,7 +386,38 @@ def cmd_run(args) -> int:
         asyncio.run(main())
     except KeyboardInterrupt:
         log.info("shutting down (interrupted)")
+    if agent.restart_for_update:
+        try:
+            updater.install_and_restart(sys.argv[1:])
+        except Exception as e:
+            log.error("the update could not be installed, this version stays: %s", e)
     log.info("stopped")
+    return 0
+
+
+def _updater(cfg: Config) -> update.Updater | None:
+    """The updater of this build, or None when it does not update itself (source install, switched off)."""
+    if not cfg.update_enabled or not update.supported():
+        return None
+    return update.Updater(cfg.update_repo, __version__)
+
+
+def cmd_update(args) -> int:
+    """Look for a newer agent release and, with ``install``, install it now."""
+    cfg = load(args.config)
+    updater = update.Updater(cfg.update_repo, __version__)
+    rel = updater.check_and_download() if args.action == "install" else updater.check()
+    if rel is None:
+        print(f"agent {__version__} is up to date")
+        return 0
+    if args.action == "check":
+        print(f"agent {rel.text} is available (this is {__version__}); install it with: splash-agent update install")
+        return 0
+    if not update.supported():
+        print(f"agent {rel.text} is downloaded, but only the Windows program updates itself; replace {updater.exe} by hand")
+        return 1
+    updater.install_and_restart(["run", "--config", str(Path(args.config).resolve())])
+    print(f"agent {rel.text} installed; this window can be closed")
     return 0
 
 
@@ -444,6 +507,10 @@ def cli(argv: list[str] | None = None) -> int:
     run = sub.add_parser("run", parents=[common], help="stream the shared memory data to the backend")
     run.add_argument("--config", default="agent.toml")
     run.set_defaults(fn=cmd_run)
+    upd = sub.add_parser("update", parents=[common], help="look for a newer agent release, or install it")
+    upd.add_argument("action", choices=["check", "install"])
+    upd.add_argument("--config", default="agent.toml")
+    upd.set_defaults(fn=cmd_update)
     auto = sub.add_parser("autostart", parents=[common], help="start the agent when you sign in to Windows")
     auto.add_argument("action", choices=["on", "off", "status"])
     auto.add_argument("--config", default="agent.toml")

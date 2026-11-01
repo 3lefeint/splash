@@ -324,3 +324,27 @@ def test_damage_and_penalties_reach_the_messages(tmp_path):
     t = json.loads(agent.link.live["telemetry"])["payload"]
     assert t["dent_max"] == 2 and t["overheating"] is True and "detached" not in t
     agent.close()
+
+
+class ReadyUpdater:
+    """Stands in for an Updater that has a release downloaded."""
+
+    def __init__(self, ready):
+        self.ready = ready
+
+
+def test_the_agent_restarts_for_an_update_only_when_the_game_has_been_idle(tmp_path):
+    from splash_agent import update
+
+    agent, _, _ = make_agent(tmp_path, fakes.scoring(FIELD), fakes.telemetry([{"id": 0}]))
+    agent.poll_scoring()
+    base = agent._last_et_change
+    assert agent._update_due(base + 10_000) is False  # no updater at all
+
+    agent.updater = ReadyUpdater(None)
+    assert agent._update_due(base + 10_000) is False  # nothing downloaded yet
+
+    agent.updater = ReadyUpdater(object())
+    assert agent._update_due(base + update.IDLE_BEFORE_RESTART - 1) is False  # the game time moved a moment ago
+    assert agent._update_due(base + update.IDLE_BEFORE_RESTART) is True
+    agent.close()
