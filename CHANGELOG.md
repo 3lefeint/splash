@@ -65,6 +65,7 @@
 - Audit log of all write requests (time, e-mail, team, method, path)
 - Rate limits per identity on write requests, SSE streams and agent connections (`SPLASH_RATE_WRITES_PER_MIN`, `SPLASH_RATE_CONNECTS_PER_MIN`), answered with 429 and `Retry-After`
 - Agent: the single-file Windows build updates itself from the GitHub releases `agent-vX.Y.Z` (checked against the SHA-256 of the release), at a start or while the game is idle, never in the middle of a session; `splash-agent update check|install`, settings in `[update]`
+- Agent: without an `agent.toml` it says where to get one (the administration page) and waits for Enter instead of closing the window, and it looks for the file in the working folder first, then next to the program; setup in the agent README starts from the downloaded configuration
 - Agent: at the first interactive start it asks once whether to start with Windows (entry in the Run key of the current user), `splash-agent autostart on|off|status` changes it later
 - Release flow with two tag series: `v*` builds the backend image, `agent-v*` publishes the Windows agent as a GitHub release with a SHA-256 checksum
 - Each lap stores the agent whose token delivered it (`laps.agent_id`), taken from the token and not from the agent id in the message; the agent that delivered the fuel figures counts as the driver of the lap
