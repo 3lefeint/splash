@@ -171,6 +171,16 @@ func normalizeEmail(s string) (string, bool) {
 	return s, at > 0 && at < len(s)-1 && len(s) <= maxEmail && !strings.ContainsAny(s, " \t\r\n,;<>")
 }
 
+// printable is true for text of printable ASCII only, which can go into a configuration file as it is.
+func printable(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
 var shortPattern = regexp.MustCompile(`^[a-z0-9]{2,8}$`)
 
 const (
@@ -236,6 +246,10 @@ func (a *API) adminSetMember(w http.ResponseWriter, r *http.Request) {
 	secret := ""
 	if req.CFSecret != nil {
 		secret = strings.TrimSpace(*req.CFSecret)
+	}
+	if !printable(m.CFClientID) || !printable(secret) {
+		fail(w, http.StatusBadRequest, "the Cloudflare values must be plain printable characters")
+		return
 	}
 	if secret != "" {
 		if a.Secrets == nil {
