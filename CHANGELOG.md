@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [agent-v0.2.0]
+
+### Added
+
+- Windows agent: shared memory reader, lap and pit event detection, spool with resend, WebSocket link and `probe` command
+- Agent option `raw_file` and `replay-raw` command to run a captured session through the agent offline
+- Agent logs a status line every 30 s (session, cars, frames, backend connection, game time standing still)
+- Race simulator (`splash-agent simulate`, `scripts/simulate.sh`) that plays an invented endurance race with pit stops, rain, yellow flags, penalties and damage into a backend; with `SIM_TRACK` it drives on the outline and corners of a track known to another backend
+- Agent: the single-file Windows build updates itself from the GitHub releases `agent-vX.Y.Z` (checked against the SHA-256 of the release), at a start or while the game is idle, never in the middle of a session; `splash-agent update check|install`, settings in `[update]`
+- Agent: without an `agent.toml` it says where to get one (the administration page) and waits for Enter instead of closing the window, and it looks for the file in the working folder first, then next to the program; setup in the agent README starts from the downloaded configuration
+- Agent: at the first interactive start it asks once whether to start with Windows (entry in the Run key of the current user), `splash-agent autostart on|off|status` changes it later
+
+### Changed
+
+- Agents have no role any more: `agent.role` is gone from the configuration, the messages, the agent list and the command hub; the backend still accepts the role that agents of version 0.1 send and ignores it, and the agent id defaults to the name of the PC
+- Agent: relative file names in `agent.toml` (`spool_dir`, `record_file`, `raw_file`) count from the folder of the configuration, not from the working folder
+
+### Fixed
+
+- Agent: a negative lap distance, which the game reports for the player's car before the start line on a shortcut (24h Nürburgring), is counted back from the track length instead of dropped, so the player keeps a position on the way into the pit lane and the entry of the pit lane is learned from a pass over the shortcut
+- Agent keeps reconnecting after a connection that was cut before the HTTP answer, and starts its reconnect pause over after a connection that worked; the pause carries jitter
+- Agent marks laps as full course yellow only for game phase 6 or yellow flag states 1 to 3, not for sector flags
+- Agent no longer creates an empty shared memory area when it starts before the game; it opens the plugin buffers read-only and waits
+- Agent detects a tyre change from a rise of the wear value, also for slightly worn tyres
+- Agent starts a new session id when the race time jumps back, so a restarted race on the same track no longer joins the old data
+
+## [v0.1.0]
+
 ### Added
 
 - Repository structure for agent, backend, web and deploy
