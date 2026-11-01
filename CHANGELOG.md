@@ -92,6 +92,10 @@
 
 ### Fixed
 
+- Agent: a negative lap distance, which the game reports for the player's car before the start line on a shortcut (24h Nürburgring), is counted back from the track length instead of dropped, so the player keeps a position on the way into the pit lane and the entry of the pit lane is learned from a pass over the shortcut
+- Pit lane: an entry without a lap distance no longer takes an older one from before a gap (it gave 4258 m instead of 25193 m); only the sample right before the entry may stand in, and an exit waits for a distance for ten seconds at most
+- Pit lane: a change of the pit flag counts as an entry or an exit only when the car moved plausibly since its previous sample and the pit state fits (entry 2, exit 0 or 4), so cars put into their box no longer pollute the learned distances; the distances are kept as clusters, so a single false observation cannot move them, and stored distances that do not fit the track length are replaced by the first genuine passes; the state of the cars is kept per agent and session and the lane per track, so several agents no longer reset each other; counted and ignored changes are logged; `DELETE /api/track-pits` and a button on the tracks page learn the pit lane again
+
 - The page no longer crashes for a team without data or with a single car: lists in the state are sent as `[]` instead of `null` (rivals, rival tyre wear, rejoin lists, weather history, stint plan entries, pit lane boxes) and the page treats a missing list as empty
 - Agent keeps reconnecting after a connection that was cut before the HTTP answer, and starts its reconnect pause over after a connection that worked; the pause carries jitter
 - Agent marks laps as full course yellow only for game phase 6 or yellow flag states 1 to 3, not for sector flags

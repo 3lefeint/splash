@@ -234,7 +234,7 @@ func (s *Server) handle(ctx context.Context, m wire.Message, cs *connStats) (int
 		s.backlogDone(cs)
 		s.touchSession(ctx, cs.st, m.SessionID, m.ET, b.Track, b.SessionType, "", -1)
 		if s.Pits != nil {
-			s.Pits.Observe(ctx, b)
+			s.Pits.Observe(ctx, strconv.FormatInt(cs.ref.ID, 10)+"|"+m.SessionID, m.ET, b)
 		}
 		if s.Field != nil && b.TrackLength > 0 {
 			for _, v := range b.Vehicles {

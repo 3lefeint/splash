@@ -241,8 +241,27 @@ would sit among the cars afterwards: our lap distance minus what a car at race p
 length over lap time), wrapped around the lap. It is `null` while our lap distance, the track length or the lap time is
 unknown; the track map then draws no marker. The marker moves with the car and with the time lost.
 
-The entry distance is taken at the first sample inside the pit lane; if that sample has no lap distance, the last
-distance seen before it stands in (the car was at most one sample earlier). An exit sample without a lap distance
-waits for the next sample outside the lane. The mean is taken around the lap, so an entry before the start line and an
-exit after it give a stretch across the line (for example entry 20400 m, exit 319 m on a 20832 m track: 751 m). A stored
-lane that has points and boxes but no entry distance gets one on its next pass and keeps what it has.
+The entry distance is taken at the first sample inside the pit lane; if that sample has no lap distance, the sample
+right before it stands in when that one has a distance (an older distance would be wrong: it can lie kilometres back).
+An exit sample without a lap distance waits for the next sample outside the lane, but only for ten seconds of game time.
+The distances are taken around the lap, so an entry before the start line and an exit after it give a stretch across the line (for example entry 20400 m, exit 319 m on a 20832 m track: 751 m). A
+stored lane that has points and boxes but no entry distance gets one on its next pass and keeps what it has.
+
+A change of the pit flag counts as an entry or an exit only if it is a real one:
+
+- the car moved the way a car moves since its previous sample (at most 100 m/s plus 50 m, in position and in lap
+  distance) and the previous sample is not older than 10 seconds; a car that is put into its box (return to the garage, a
+  new session, a start from the garage) jumps and does not count;
+- the pit state fits: an entry has the state 2 (entering), an exit 0 or 4 (none or leaving the box).
+
+The ring recording of 2026-10-26 shows 52 real entries at 25190 to 25200 m, all with the state 2, and 16 false ones from
+cars put into their box, with the state 4 and jumps of hundreds of metres in under a second; replaying it gives entry
+25193 m, exit 318 m, a lane of 446 m. Every ignored change is logged at debug level with its reason (`gap`, `jump`,
+`state`), every counted one at info level (`pit lane event counted`).
+
+A distance is kept as clusters of observations within 60 m of each other; the value is the middle of the cluster with the
+most observations, not the mean of everything. A false observation forms a cluster of its own and cannot move the value.
+Distances stored earlier that do not make a pit lane for the track length (more than half a lap, or none) are demoted to a
+single observation as soon as the track length is known, so the first genuine passes replace them. The state of the cars
+is kept per agent and session, and the lane per track, so agents on different tracks do not disturb each other.
+`DELETE /api/track-pits?track=` forgets the lane of a track (in memory and in the database) so that it is learned again.

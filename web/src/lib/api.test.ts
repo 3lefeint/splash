@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   adminCars, adminDeleteMember, adminMapCarName, adminUnmapCarName, adminRevokeAgent, adminSetAgentEmail, adminSetMember, ApiError, clearOverride,
-  getMe, getParams, issueAgentConfig, pitRequest, putPlan, setOverride, useAgent,
+  getMe, getParams, issueAgentConfig, resetPitLane, pitRequest, putPlan, setOverride, useAgent,
 } from './api';
 
 function respond(status: number, body?: unknown) {
@@ -74,6 +74,13 @@ describe('api', () => {
       ['DELETE', '/api/admin/car-names?team_id=2&name=BMW%20%231%20%26%20red'],
     ]);
     expect(calls[1][1].body).toBe('{"team_id":2,"vehicle_name":"BMW #1"}');
+  });
+  it('asks the backend to learn the pit lane of a track again and escapes the name', async () => {
+    const f = respond(204);
+    vi.stubGlobal('fetch', f);
+    await resetPitLane('P1 24h Nurburgring');
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect([url, init.method]).toEqual(['/api/track-pits?track=P1%2024h%20Nurburgring', 'DELETE']);
   });
   it('ties an agent to a member and releases it with an empty address', async () => {
     const f = respond(200, { id: 3, name: 'pc', team_id: 1, email: '', revoked: false, last_seen: null });

@@ -190,6 +190,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	h("PUT /api/stint-plan", a.putPlan)
 	h("GET /api/track-map", a.getTrackMap)
 	h("DELETE /api/track-map", a.deleteTrackMap)
+	h("DELETE /api/track-pits", a.deleteTrackPits)
 	h("GET /api/tracks", a.listTracks)
 	h("GET /api/track-corners", a.getCorners)
 	h("PUT /api/track-corners", a.putCorners)
@@ -643,6 +644,31 @@ func (a *API) getTrackMap(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteTrackMap removes the stored outline so the next clean lap records a new one.
+// deleteTrackPits makes the backend learn the pit lane of a track again. The lane is track data that all teams share, so
+// the lane of this team's recorder and the stored one go; the recorders of other teams keep theirs until they restart.
+func (a *API) deleteTrackPits(w http.ResponseWriter, r *http.Request) {
+	rt, ok := a.team(w, r)
+	if !ok {
+		return
+	}
+	track := r.URL.Query().Get("track")
+	if track == "" {
+		fail(w, http.StatusBadRequest, "track is required")
+		return
+	}
+	var err error
+	if rt.Ingest != nil && rt.Ingest.Pits != nil {
+		err = rt.Ingest.Pits.Reset(r.Context(), track)
+	} else {
+		err = rt.Store.DeletePitLane(r.Context(), track)
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *API) deleteTrackMap(w http.ResponseWriter, r *http.Request) {
 	rt, ok := a.team(w, r)
 	if !ok {

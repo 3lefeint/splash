@@ -31,11 +31,29 @@ func NewPitRecorder(st store.Store, log *slog.Logger) *PitRecorder {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &PitRecorder{Store: st, Log: log, loaded: map[string]bool{}}
+	r := &PitRecorder{Store: st, Log: log, loaded: map[string]bool{}}
+	r.t.OnEvent = r.logEvent
+	return r
 }
 
-// Observe processes one scoring sample.
-func (r *PitRecorder) Observe(ctx context.Context, sc wire.Scoring) {
+// logEvent writes a line for every change of the pit flag the tracker saw: the ones it counted at INFO, the ones it
+// ignored (a car put into its box, samples too far apart, an odd pit state) at DEBUG with the reason.
+func (r *PitRecorder) logEvent(e pitlane.Event) {
+	dist := -1.0
+	if e.Dist != nil {
+		dist = *e.Dist
+	}
+	args := []any{"kind", e.Kind, "track", e.Track, "car", e.Car, "lap_dist", dist, "pit_state", e.State,
+		"step_m", e.Step, "gap_s", e.Gap, "source", e.Source}
+	if e.Accepted {
+		r.Log.Info("pit lane event counted", args...)
+		return
+	}
+	r.Log.Debug("pit lane event ignored", append(args, "reason", e.Reason)...)
+}
+
+// Observe processes one scoring sample of a source (an agent in a session) taken at game time et.
+func (r *PitRecorder) Observe(ctx context.Context, src string, et float64, sc wire.Scoring) {
 	if sc.Track == "" {
 		return
 	}
@@ -50,7 +68,7 @@ func (r *PitRecorder) Observe(ctx context.Context, sc wire.Scoring) {
 			r.t.Load(l)
 		}
 	}
-	changed := r.t.Observe(sc)
+	changed := r.t.Observe(src, et, sc)
 	r.mu.Lock()
 	r.dirty = r.dirty || changed
 	due := r.dirty && time.Since(r.saved) >= saveEvery
@@ -65,6 +83,17 @@ func (r *PitRecorder) Observe(ctx context.Context, sc wire.Scoring) {
 			}
 		}
 	}
+}
+
+// Reset forgets what was learned about the pit lane of a track, in memory and in the database, so that it is learned
+// again from the next passes.
+func (r *PitRecorder) Reset(ctx context.Context, track string) error {
+	r.t.Reset(track)
+	r.mu.Lock()
+	r.loaded[track] = true // do not load the old lane again
+	r.dirty = false
+	r.mu.Unlock()
+	return r.Store.DeletePitLane(ctx, track)
 }
 
 // Lane returns what is known about the pit lane of the track, or nil.

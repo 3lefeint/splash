@@ -756,6 +756,13 @@ func (m *Memory) SavePitLane(_ context.Context, l pitlane.Lane) error {
 	return nil
 }
 
+func (m *Memory) DeletePitLane(_ context.Context, track string) error {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	delete(m.lanes, track)
+	return nil
+}
+
 func (m *Memory) TeamByName(_ context.Context, name string) (Team, bool, error) {
 	m.smu.Lock()
 	defer m.smu.Unlock()

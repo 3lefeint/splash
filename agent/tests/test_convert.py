@@ -88,3 +88,26 @@ def test_weather_carries_wetness():
     s = fakes.scoring([{}], mAvgPathWetness=0.4, mDarkCloud=0.25)
     w = cv.scoring_payload(s.mScoringInfo, [s.mVehicles[0]])["weather"]
     assert w["wetness"] == 0.4 and w["dark_cloud"] == 0.25
+
+
+def test_a_negative_lap_distance_is_the_place_before_the_start_line():
+    assert cv.lap_distance(319.5, 25321.0) == 319.5
+    assert cv.lap_distance(0.0, 25321.0) == 0.0
+    assert cv.lap_distance(-128.0, 25321.0) == pytest.approx(25193.0)  # the pit entry of the 24h Nürburgring
+    assert cv.lap_distance(-257.0, 25321.0) == pytest.approx(25064.0)
+
+
+def test_a_lap_distance_that_cannot_be_placed_stays_unknown():
+    for bad in (math.nan, math.inf, -math.inf):
+        assert cv.lap_distance(bad, 25321.0) is None
+    assert cv.lap_distance(-128.0, None) is None  # no track length to count back from
+    assert cv.lap_distance(-128.0, 0.0) is None
+    assert cv.lap_distance(-128.0, math.nan) is None
+    assert cv.lap_distance(-30000.0, 25321.0) is None  # farther back than a whole lap: not a place on the track
+
+
+def test_scoring_carries_the_normalised_lap_distance_of_every_car():
+    buf = fakes.scoring([{"id": 0, "player": True, "dist": -128.0}, {"id": 1, "dist": 25193.0}, {"id": 2, "dist": 300.0}], mLapDist=25321.0)
+    payload = cv.scoring_payload(buf.mScoringInfo, [buf.mVehicles[i] for i in range(3)])
+    dists = [v["lap_dist"] for v in payload["vehicles"]]
+    assert dists == [pytest.approx(25193.0), 25193.0, 300.0]

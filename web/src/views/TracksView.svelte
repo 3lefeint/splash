@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import CornerMap from '../components/CornerMap.svelte';
   import CornersPanel from '../components/CornersPanel.svelte';
-  import { deleteTrackMap, listTracks } from '../lib/api';
+  import { deleteTrackMap, listTracks, resetPitLane } from '../lib/api';
   import { corners } from '../lib/corners.svelte';
   import { fixed } from '../lib/format';
   import { t } from '../lib/settings.svelte';
@@ -76,6 +76,16 @@
     if (selected) corners.watch(selected);
   });
 
+  async function relearnPits(): Promise<void> {
+    if (!selected || !confirm(t('pits.relearnConfirm'))) return;
+    error = '';
+    try {
+      await resetPitLane(selected);
+    } catch (e) {
+      error = t('err.generic', { msg: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   async function rerecord(): Promise<void> {
     if (!selected || !confirm(t('map.confirm'))) return;
     error = '';
@@ -119,6 +129,8 @@
       <aside class="panel">
         <CornersPanel />
         <button class="danger" onclick={rerecord}>{t('map.rerecord')}</button>
+        <button class="danger" onclick={relearnPits}>{t('pits.relearn')}</button>
+        <p class="muted small">{t('pits.relearnHelp')}</p>
         {#if error}<p class="error">{error}</p>{/if}
       </aside>
     {:else}

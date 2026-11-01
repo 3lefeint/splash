@@ -75,6 +75,9 @@ export async function getTrackMap(track: string): Promise<TrackMap | null> {
 export const deleteTrackMap = (track: string) =>
   request<void>('DELETE', `/api/track-map?track=${encodeURIComponent(track)}`);
 
+/** Makes the backend learn the pit lane of a track again. */
+export const resetPitLane = (track: string) => request<void>('DELETE', `/api/track-pits?track=${encodeURIComponent(track)}`);
+
 export const listTracks = () => request<TrackInfo[]>('GET', '/api/tracks');
 export const getCorners = (track: string) => request<Corner[]>('GET', `/api/track-corners?track=${encodeURIComponent(track)}`);
 export const putCorners = (track: string, corners: Corner[]) =>

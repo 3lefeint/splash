@@ -12,14 +12,24 @@ func car(id int, x, z float64, pits bool, state int) wire.ScoringVehicle {
 
 func sc(vs ...wire.ScoringVehicle) wire.Scoring { return wire.Scoring{Track: "t", Vehicles: vs} }
 
+// clock is the game time of the samples of the tests: three seconds between two samples, so a car may move up to 350 m.
+var clock float64
+
+func observe(tr *Tracker, s wire.Scoring) bool { return observeFrom(tr, "src", s) }
+
+func observeFrom(tr *Tracker, src string, s wire.Scoring) bool {
+	clock += 3
+	return tr.Observe(src, clock, s)
+}
+
 func TestEntryExitAndBoxesAreLearnedFromACarDrivingThroughTheLane(t *testing.T) {
 	var tr Tracker
-	tr.Observe(sc(car(1, 0, 0, false, 0)))   // first sight: no entry
-	tr.Observe(sc(car(1, 100, 0, true, 2)))  // enters the lane
-	tr.Observe(sc(car(1, 150, 10, true, 3))) // stops in its box
-	tr.Observe(sc(car(1, 150, 10, true, 3))) // still stopped: the box is counted once
-	tr.Observe(sc(car(1, 200, 10, true, 4)))
-	changed := tr.Observe(sc(car(1, 260, 5, false, 0))) // leaves the lane
+	observe(&tr, sc(car(1, 0, 0, false, 0)))   // first sight: no entry
+	observe(&tr, sc(car(1, 100, 0, true, 2)))  // enters the lane
+	observe(&tr, sc(car(1, 150, 10, true, 3))) // stops in its box
+	observe(&tr, sc(car(1, 150, 10, true, 3))) // still stopped: the box is counted once
+	observe(&tr, sc(car(1, 200, 10, true, 4)))
+	changed := observe(&tr, sc(car(1, 260, 5, false, 0))) // leaves the lane
 	if !changed {
 		t.Fatal("the exit was not reported as a change")
 	}
@@ -37,31 +47,38 @@ func TestEntryExitAndBoxesAreLearnedFromACarDrivingThroughTheLane(t *testing.T) 
 
 func TestTheSameBoxIsNotAddedTwiceAndAnotherOneIs(t *testing.T) {
 	var tr Tracker
-	tr.Observe(sc(car(1, 0, 0, false, 0), car(2, 0, 0, false, 0)))
-	tr.Observe(sc(car(1, 150, 10, true, 3), car(2, 160, 10, true, 3))) // 10 m apart: two boxes
-	tr.Observe(sc(car(1, 150, 10, true, 4), car(2, 160, 10, true, 4)))
-	tr.Observe(sc(car(1, 152, 11, true, 3))) // car 1 returns to its box a little off
+	observe(&tr, sc(car(1, 0, 0, false, 0), car(2, 0, 0, false, 0)))
+	observe(&tr, sc(car(1, 150, 10, true, 3), car(2, 160, 10, true, 3))) // 10 m apart: two boxes
+	observe(&tr, sc(car(1, 150, 10, true, 4), car(2, 160, 10, true, 4)))
+	observe(&tr, sc(car(1, 152, 11, true, 3))) // car 1 returns to its box a little off
 	if l := tr.Lane("t"); len(l.Boxes) != 2 {
 		t.Fatalf("%+v", l)
 	}
 }
 
-func TestLoadedLaneIsKeptAndAnotherTrackStartsOver(t *testing.T) {
+func TestEveryTrackKeepsItsOwnLane(t *testing.T) {
 	var tr Tracker
 	tr.Load(Lane{Track: "t", Entry: &Point{1, 2}, Boxes: []Point{{5, 5}}})
 	if l := tr.Lane("t"); l == nil || l.Entry[0] != 1 || len(l.Boxes) != 1 {
 		t.Fatalf("%+v", l)
 	}
-	tr.Observe(wire.Scoring{Track: "other"})
-	if tr.Lane("t") != nil || tr.Lane("other") != nil {
-		t.Fatal("old lane survived a track change")
+	observe(&tr, wire.Scoring{Track: "other"})
+	if l := tr.Lane("t"); l == nil || l.Entry[0] != 1 {
+		t.Fatal("the lane of a track is lost when another track is seen")
+	}
+	if tr.Lane("other") != nil {
+		t.Fatal("nothing is known about the other track")
 	}
 }
 
 // at is a car at a lap distance on a track of 5000 m.
 func at(id int, dist float64, pits bool) wire.ScoringVehicle {
-	x, z := dist, 0.0
-	return wire.ScoringVehicle{CarID: id, VehicleName: "v", X: &x, Z: &z, InPits: pits, LapDist: &dist}
+	x, z := 0.0, 0.0 // the position is not what these tests are about, only the lap distance
+	state := 0
+	if pits {
+		state = 2
+	}
+	return wire.ScoringVehicle{CarID: id, VehicleName: "v", X: &x, Z: &z, InPits: pits, PitState: state, LapDist: &dist}
 }
 
 func lap(vs ...wire.ScoringVehicle) wire.Scoring {
@@ -70,10 +87,10 @@ func lap(vs ...wire.ScoringVehicle) wire.Scoring {
 
 func TestTheLapDistanceOfEntryAndExitIsLearned(t *testing.T) {
 	var tr Tracker
-	tr.Observe(lap(at(1, 4000, false)))
-	tr.Observe(lap(at(1, 4400, true))) // enters
-	tr.Observe(lap(at(1, 4700, true)))
-	tr.Observe(lap(at(1, 4900, false))) // leaves
+	observe(&tr, lap(at(1, 4100, false)))
+	observe(&tr, lap(at(1, 4400, true))) // enters
+	observe(&tr, lap(at(1, 4700, true)))
+	observe(&tr, lap(at(1, 4900, false))) // leaves
 	l := tr.Lane("t")
 	if l == nil || l.EntryDist == nil || *l.EntryDist != 4400 || l.ExitDist == nil || *l.ExitDist != 4900 {
 		t.Fatalf("%+v", l)
@@ -85,9 +102,10 @@ func TestTheLapDistanceOfEntryAndExitIsLearned(t *testing.T) {
 
 func TestTheStretchWrapsWhenTheStartLineIsInsideThePitLane(t *testing.T) {
 	var tr Tracker
-	tr.Observe(lap(at(1, 4500, false)))
-	tr.Observe(lap(at(1, 4800, true))) // enters before the line
-	tr.Observe(lap(at(1, 150, false))) // leaves after it
+	observe(&tr, lap(at(1, 4500, false)))
+	observe(&tr, lap(at(1, 4800, true))) // enters before the line
+	observe(&tr, lap(at(1, 4950, true)))
+	observe(&tr, lap(at(1, 150, false))) // leaves after it
 	l := tr.Lane("t")
 	if d, ok := l.Stretch(5000); !ok || d != 350 {
 		t.Fatalf("stretch %v %v: %+v", d, ok, l)
@@ -96,9 +114,9 @@ func TestTheStretchWrapsWhenTheStartLineIsInsideThePitLane(t *testing.T) {
 
 func TestEntriesOnBothSidesOfTheLineAverageAcrossIt(t *testing.T) {
 	var tr Tracker
-	tr.Observe(lap(at(1, 4000, false), at(2, 4000, false)))
-	tr.Observe(lap(at(1, 4990, true))) // enters 10 m before the line
-	tr.Observe(lap(at(2, 10, true)))   // another car enters 10 m after it
+	observe(&tr, lap(at(1, 4900, false), at(2, 4900, false)))
+	observe(&tr, lap(at(1, 4990, true))) // enters 10 m before the line
+	observe(&tr, lap(at(2, 10, true)))   // another car enters 10 m after it
 	l := tr.Lane("t")
 	if l.EntryDist == nil || !(*l.EntryDist > 4990 || *l.EntryDist < 10) {
 		t.Fatalf("the mean of 4990 and 10 must stay near the line: %+v", l.EntryDist)
@@ -179,7 +197,7 @@ func drive() []pos {
 
 func replay(tr *Tracker, ps []pos) {
 	for _, p := range ps {
-		tr.Observe(ringSample(p))
+		observe(tr, ringSample(p))
 	}
 }
 
