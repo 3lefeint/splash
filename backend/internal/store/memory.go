@@ -52,7 +52,7 @@ type memTeam struct {
 
 	params    map[string]Params
 	plan      []PlanRow
-	overrides map[string]Override
+	overrides map[overrideKey]Override
 	setups    []PitSetup
 	wears     map[lapKey]wear.LapWear
 	sessions  map[string]SessionInfo
@@ -76,7 +76,7 @@ func newMemTeam() *memTeam {
 		weather:   map[string][]WeatherPoint{},
 		progress:  map[string]int64{},
 		params:    map[string]Params{},
-		overrides: map[string]Override{},
+		overrides: map[overrideKey]Override{},
 		wears:     map[lapKey]wear.LapWear{},
 	}
 }
@@ -277,27 +277,34 @@ func (m *Memory) SetStintPlan(_ context.Context, rows []PlanRow) error {
 	return nil
 }
 
-func (m *Memory) GetOverrides(_ context.Context) (map[string]Override, error) {
+type overrideKey struct {
+	agent int64
+	key   string
+}
+
+func (m *Memory) GetOverrides(_ context.Context, agentID int64) (map[string]Override, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make(map[string]Override, len(m.overrides))
+	out := map[string]Override{}
 	for k, v := range m.overrides {
-		out[k] = v
+		if k.agent == agentID {
+			out[k.key] = v
+		}
 	}
 	return out, nil
 }
 
-func (m *Memory) SetOverride(_ context.Context, key string, value float64) error {
+func (m *Memory) SetOverride(_ context.Context, agentID int64, key string, value float64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.overrides[key] = Override{Key: key, Value: value, SetAt: time.Now().UTC()}
+	m.overrides[overrideKey{agentID, key}] = Override{Key: key, Value: value, SetAt: time.Now().UTC()}
 	return nil
 }
 
-func (m *Memory) DeleteOverride(_ context.Context, key string) error {
+func (m *Memory) DeleteOverride(_ context.Context, agentID int64, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.overrides, key)
+	delete(m.overrides, overrideKey{agentID, key})
 	return nil
 }
 

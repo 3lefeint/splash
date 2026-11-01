@@ -32,8 +32,12 @@ const (
 // Server handles agent connections.
 type Server struct {
 	Store store.Store
-	Live  *live.State
-	Log   *slog.Logger
+	// Live is the live state of agents that LiveFor does not serve; tests and the replay tool use it alone.
+	Live *live.State
+	// LiveFor returns the live state of an agent, so that every agent has its own session, scoring and telemetry.
+	// Nil means all agents share Live.
+	LiveFor func(AgentRef) *live.State
+	Log     *slog.Logger
 	// PingInterval is how often the server pings an agent connection; DeadAfter is how long a ping may stay
 	// unanswered before the connection counts as dead and is closed. Zero values mean 20 s and 30 s.
 	PingInterval, DeadAfter time.Duration
@@ -51,10 +55,10 @@ type Server struct {
 	// CountEvery is how often dropped and deduplicated samples are reported; zero means a minute.
 	CountEvery time.Duration
 
-	wear  wear.Tracker
-	stood stationary
-	cond  conditionLog
-	sess  sessionLog
+	wear wear.Tracker
+
+	agentsMu sync.Mutex
+	agents   map[int64]*agentIngest
 
 	mu       sync.Mutex
 	received map[string]int64 // highest seq processed per agent and session
@@ -64,12 +68,41 @@ type Server struct {
 	countedAt  time.Time // when they were last reported
 }
 
+// agentIngest is what the ingest remembers about one agent between messages: its live state and the logs that follow
+// the session the agent is in. Agents are independent, so one in another session does not disturb the others.
+type agentIngest struct {
+	live  *live.State
+	stood stationary
+	cond  conditionLog
+	sess  sessionLog
+}
+
+// agent returns the ingest state of an agent and creates it on its first connection.
+func (s *Server) agent(ref AgentRef) *agentIngest {
+	s.agentsMu.Lock()
+	defer s.agentsMu.Unlock()
+	if a, ok := s.agents[ref.ID]; ok {
+		return a
+	}
+	lv := s.Live
+	if s.LiveFor != nil {
+		lv = s.LiveFor(ref)
+	}
+	if s.agents == nil {
+		s.agents = map[int64]*agentIngest{}
+	}
+	a := &agentIngest{live: lv}
+	s.agents[ref.ID] = a
+	return a
+}
+
 // connStats is what the log lines about one agent connection need.
 type connStats struct {
 	start    time.Time
 	agent    string
 	role     string
 	ref      AgentRef // the agent the token belongs to; the zero value for the shared dev token
+	st       *agentIngest
 	msgs     int
 	stored   int // durable messages stored on this connection
 	dups     int // durable messages that were resends of ones already stored
@@ -99,6 +132,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.SetReadLimit(readLimit)
 	ctx := r.Context()
 	cs := &connStats{start: time.Now(), ref: AgentFrom(r.Context())}
+	cs.st = s.agent(cs.ref)
 	reason := "connection closed"
 	go s.keepAlive(ctx, c, cs)
 	var conn *commands.Conn
@@ -195,11 +229,11 @@ func (s *Server) handle(ctx context.Context, m wire.Message, cs *connStats) (int
 		}
 		return last, nil
 	case wire.Scoring:
-		if !s.Live.UpdateScoring(m.SessionID, m.ET, b) {
+		if !cs.st.live.UpdateScoring(m.SessionID, m.ET, b) {
 			s.count(&s.stale)
 		}
 		s.backlogDone(cs)
-		s.touchSession(ctx, m.SessionID, m.ET, b.Track, b.SessionType, "", -1)
+		s.touchSession(ctx, cs.st, m.SessionID, m.ET, b.Track, b.SessionType, "", -1)
 		if s.Pits != nil {
 			s.Pits.Observe(ctx, b)
 		}
@@ -214,26 +248,26 @@ func (s *Server) handle(ctx context.Context, m wire.Message, cs *connStats) (int
 		if s.Maps != nil {
 			s.Maps.Observe(ctx, m.SessionID, b)
 		}
-		for _, w := range s.stood.observe(m.SessionID, m.ET, b.Vehicles) {
+		for _, w := range cs.st.stood.observe(m.SessionID, m.ET, b.Vehicles) {
 			if err := s.Store.AddStopped(ctx, m.SessionID, w.CarID, w.VehicleName, w.Standing); err != nil {
 				s.Log.Error("save stand-still", "team", s.TeamID, "err", err)
 			}
 		}
 		return last, nil
 	case wire.Telemetry:
-		if !s.Live.UpdateTelemetry(m.SessionID, m.ET, b) {
+		if !cs.st.live.UpdateTelemetry(m.SessionID, m.ET, b) {
 			s.count(&s.stale)
 		}
 		s.backlogDone(cs)
-		s.touchSession(ctx, m.SessionID, m.ET, "", "", b.VehicleName, b.CarID)
-		s.observeOwnLap(m.SessionID, m.ET, b)
-		if c := s.cond.observe(m.SessionID, m.ET, b, s.Live.Snapshot().Scoring); c != nil {
+		s.touchSession(ctx, cs.st, m.SessionID, m.ET, "", "", b.VehicleName, b.CarID)
+		s.observeOwnLap(cs.st.live, m.SessionID, m.ET, b)
+		if c := cs.st.cond.observe(m.SessionID, m.ET, b, cs.st.live.Snapshot().Scoring); c != nil {
 			if err := s.Store.SaveLapConditions(ctx, *c); err != nil {
 				s.Log.Error("save lap conditions", "team", s.TeamID, "err", err)
 			}
 		}
-		s.observeWear(ctx, m.SessionID, b)
-		s.stood.telemetry(m.SessionID, m.ET, b)
+		s.observeWear(ctx, cs.st.live, m.SessionID, b)
+		cs.st.stood.telemetry(m.SessionID, m.ET, b)
 		return last, nil
 	}
 	if _, ok := m.Body.(wire.Hello); ok {
@@ -290,11 +324,11 @@ func (s *Server) lastSeq(ctx context.Context, key string, m wire.Message) (int64
 }
 
 // observeWear attributes the wear of the driven car to track sections and stores every completed lap.
-func (s *Server) observeWear(ctx context.Context, sessionID string, tel wire.Telemetry) {
+func (s *Server) observeWear(ctx context.Context, lv *live.State, sessionID string, tel wire.Telemetry) {
 	if tel.LapDist == nil {
 		return
 	}
-	snap := s.Live.Snapshot()
+	snap := lv.Snapshot()
 	if snap.Scoring == nil || snap.Scoring.TrackLength <= 0 {
 		return
 	}
@@ -310,8 +344,8 @@ func (s *Server) observeWear(ctx context.Context, sessionID string, tel wire.Tel
 }
 
 // touchSession records that the session is alive; the store is written every few seconds, not per sample.
-func (s *Server) touchSession(ctx context.Context, id string, et float64, track, sessionType, car string, carID int) {
-	info, prev, switched := s.sess.updateSwitch(id, time.Now(), et, track, sessionType, car, carID)
+func (s *Server) touchSession(ctx context.Context, a *agentIngest, id string, et float64, track, sessionType, car string, carID int) {
+	info, prev, switched := a.sess.updateSwitch(id, time.Now(), et, track, sessionType, car, carID)
 	if switched {
 		if prev == "" {
 			s.Log.Info("session started", "team", s.TeamID, "session", id)
@@ -367,11 +401,11 @@ func (s *Server) count(counter *int) {
 func CarKey(vehicle string, id int) string { return vehicle + "|" + strconv.Itoa(id) }
 
 // observeOwnLap follows the driven car from its telemetry: fuel and brake along the lap.
-func (s *Server) observeOwnLap(session string, et float64, t wire.Telemetry) {
+func (s *Server) observeOwnLap(lv *live.State, session string, et float64, t wire.Telemetry) {
 	if s.Own == nil || t.LapDist == nil {
 		return
 	}
-	snap := s.Live.Snapshot()
+	snap := lv.Snapshot()
 	if snap.Scoring == nil || snap.Scoring.TrackLength <= 0 {
 		return
 	}

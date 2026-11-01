@@ -44,8 +44,10 @@ itself then runs with a role that only has data rights, see `deploy/README.md`.
 ## Teams
 
 Several teams can use one backend. Everything except track data (outlines, pit lanes, corner names) belongs to a team:
-parameters, stint plan, overrides, pit setups, sessions with their laps, stops and weather. Each team has its own live
-state, engine, command hub and SSE stream. The migration creates the team `default` and assigns all existing data to it.
+parameters, stint plan, overrides, pit setups, sessions with their laps, stops and weather. Each team has its own
+command hub, and each agent of a team has its own live state, engine and SSE stream, because members train
+independently, in the same or in different sessions. The agent is the one whose token the connection used; the shared
+dev token is agent 0. The migration creates the team `default` and assigns all existing data to it.
 
 An agent's team comes from its token: the handshake looks up the SHA-256 hash of `Authorization: Bearer <token>` in
 the table `agents` (revoked tokens are rejected, `last_seen` is updated), never from the message. `SPLASH_AGENT_TOKEN`
@@ -170,11 +172,11 @@ Read and write endpoints have no authentication; only the agent socket uses the 
 
 | endpoint | meaning |
 |---|---|
-| `GET /api/state` | the complete computed state (fuel model, stops, saving target, stint plan, class opponents) |
-| `GET /api/stream` | the same state as server-sent events (`event: state`), at most once per second and only when it changed |
+| `GET /api/state` | the complete computed state (fuel model, stops, saving target, stint plan, class opponents) of one agent: `?agent=<id>` names it, without it one agent with a live sample in the last 30 seconds is used, the lowest id if several, else the one with the newest sample (404 for an agent that has not connected since the backend started) |
+| `GET /api/stream` | the same state as server-sent events (`event: state`), at most once per second and only when it changed; `?agent=` as for the state |
 | `GET /api/params`, `GET/PUT /api/params?track=&car=` | training parameters per track and car; the set matching the running session is used, defaults apply otherwise. `tyre_change` is 17 s (`DefaultTyreChange`) where no set exists or the value is 0, which counts as unset; every stop plan and rejoin calculation uses that resolved value. The lap time model settings `fit_min_laps` (3 to 20, default 5), `fit_slow_percent` (2 to 30, default 8), `fit_skip_fcy` and `fit_skip_wet` (default true) are part of the set: unset values read as the defaults, values out of range are answered with 400 |
 | `GET/PUT /api/stint-plan` | the stint plan of the team, a list of `{driver, duration}`, written as a whole |
-| `GET /api/overrides`, `PUT/DELETE /api/overrides/{key}` | manual values for `fuel` and `fuel_per_lap`; an override ends by itself once the live value matches it again |
+| `GET /api/overrides`, `PUT/DELETE /api/overrides/{key}` | manual values for `fuel` and `fuel_per_lap` of one agent (`?agent=` as for the state); an override ends by itself once the live value matches it again |
 
 ## Lap time model
 

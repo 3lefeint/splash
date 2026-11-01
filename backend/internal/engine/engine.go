@@ -31,6 +31,9 @@ const (
 
 // State is what the SSE stream and GET /api/state deliver.
 type State struct {
+	// AgentID and AgentName say whose state this is, see Engine.
+	AgentID   int64     `json:"agent_id"`
+	AgentName string    `json:"agent_name,omitempty"`
 	Ready     bool      `json:"ready"`
 	SessionID string    `json:"session_id,omitempty"`
 	Track     string    `json:"track,omitempty"`
@@ -136,6 +139,10 @@ type Opponent struct {
 type Engine struct {
 	Store store.Store
 	Live  *live.State
+	// AgentID and AgentName say whose state this is: the agent whose live data the engine computes from. Overrides are
+	// kept per agent. Zero is the shared dev token or an engine without an agent.
+	AgentID   int64
+	AgentName string
 	// Commands is the hub whose newest command is part of the state. Nil leaves it out.
 	Commands *commands.Hub
 	// Log receives warnings about failed writes. New sets a logger that discards them.
@@ -164,11 +171,11 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 	start := time.Now()
 	defer func() { e.Log.Debug("state computed", "ms", time.Since(start).Milliseconds()) }()
 	snap := e.Live.Snapshot()
-	ov, err := e.Store.GetOverrides(ctx)
+	ov, err := e.Store.GetOverrides(ctx, e.AgentID)
 	if err != nil {
 		return State{}, err
 	}
-	st := State{SessionID: snap.SessionID, ET: snap.ScoringET, Overrides: ov, Opponents: Opponents{}, YellowSectors: []int{}}
+	st := State{AgentID: e.AgentID, AgentName: e.AgentName, SessionID: snap.SessionID, ET: snap.ScoringET, Overrides: ov, Opponents: Opponents{}, YellowSectors: []int{}}
 	if snap.Telemetry == nil || snap.Scoring == nil {
 		return st, nil
 	}
@@ -257,7 +264,7 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 	if o, ok := ov[store.OverrideFuel]; ok {
 		if math.Abs(tel.Fuel-o.Value) <= fuelOverrideTolerance {
 			delete(ov, store.OverrideFuel)
-			if err := e.Store.DeleteOverride(ctx, store.OverrideFuel); err != nil {
+			if err := e.Store.DeleteOverride(ctx, e.AgentID, store.OverrideFuel); err != nil {
 				return State{}, err
 			}
 		} else {
@@ -271,7 +278,7 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 	if o, ok := ov[store.OverrideFuelPerLap]; ok {
 		if haveFPL && math.Abs(fpl-o.Value) <= fuelPerLapOverrideTolerance {
 			delete(ov, store.OverrideFuelPerLap)
-			if err := e.Store.DeleteOverride(ctx, store.OverrideFuelPerLap); err != nil {
+			if err := e.Store.DeleteOverride(ctx, e.AgentID, store.OverrideFuelPerLap); err != nil {
 				return State{}, err
 			}
 		} else {

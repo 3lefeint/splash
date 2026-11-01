@@ -91,7 +91,7 @@ func TestFuelOverrideAppliesAndClears(t *testing.T) {
 	r := newRig()
 	r.laps(10)
 	r.setLive(5000, 0, 11, vehicle(0, "me", "GT3", 1, 0)) // broken sensor reads 0
-	r.st.SetOverride(ctx, store.OverrideFuel, 60)
+	r.st.SetOverride(ctx, 0, store.OverrideFuel, 60)
 	st, _ := r.eng.Compute(ctx)
 	if !st.Car.FuelOverridden || st.Car.Fuel != 60 || st.Race.LapsToStop != 19 {
 		t.Fatalf("car=%+v race=%+v", st.Car, st.Race)
@@ -101,7 +101,7 @@ func TestFuelOverrideAppliesAndClears(t *testing.T) {
 	if st.Car.FuelOverridden || st.Car.Fuel != 59.5 {
 		t.Fatalf("override must be cleared: %+v", st.Car)
 	}
-	if ov, _ := r.st.GetOverrides(ctx); len(ov) != 0 {
+	if ov, _ := r.st.GetOverrides(ctx, 0); len(ov) != 0 {
 		t.Fatalf("override still stored: %v", ov)
 	}
 }
@@ -111,7 +111,7 @@ func TestFuelPerLapOverride(t *testing.T) {
 	r := newRig()
 	r.laps(10)
 	r.setLive(5000, 60, 11, vehicle(0, "me", "GT3", 1, 0))
-	r.st.SetOverride(ctx, store.OverrideFuelPerLap, 2.5) // saving target in use
+	r.st.SetOverride(ctx, 0, store.OverrideFuelPerLap, 2.5) // saving target in use
 	st, _ := r.eng.Compute(ctx)
 	if !st.Car.FuelPerLapOverridden || !near(*st.Car.FuelPerLap, 2.5) || st.Race.LapsToStop != 22 {
 		t.Fatalf("car=%+v race=%+v", st.Car, st.Race)
