@@ -1,4 +1,4 @@
-import type { AdminAgent, AgentInfo, SessionLaps, TeamCar, TeamCars, AdminMember, AdminTeam, CreatedAgent, Me, Corner, MapProgress, TrackInfo, SessionSummary, OverrideKey, Params, PitSetup, PlanRow, Step, TrackMap } from './types';
+import type { AdminAgent, AgentInfo, SessionLaps, TeamCar, TeamCars, AdminMember, AdminTeam, MyAgent, Me, Corner, MapProgress, TrackInfo, SessionSummary, OverrideKey, Params, PitSetup, PlanRow, Step, TrackMap } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -9,21 +9,23 @@ export class ApiError extends Error {
   }
 }
 
+async function failure(res: Response): Promise<ApiError> {
+  let message = res.statusText;
+  try {
+    message = ((await res.json()) as { error?: string }).error ?? message;
+  } catch {
+    // not JSON
+  }
+  return new ApiError(message || `HTTP ${res.status}`, res.status);
+}
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      message = ((await res.json()) as { error?: string }).error ?? message;
-    } catch {
-      // not JSON
-    }
-    throw new ApiError(message || `HTTP ${res.status}`, res.status);
-  }
+  if (!res.ok) throw await failure(res);
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
@@ -116,13 +118,20 @@ export const getMe = () => request<Me>('GET', '/api/me');
 export const adminTeams = () => request<AdminTeam[]>('GET', '/api/admin/teams');
 export const adminCreateTeam = (name: string) => request<AdminTeam>('POST', '/api/admin/teams', { name });
 export const adminMembers = () => request<AdminMember[]>('GET', '/api/admin/members');
-export const adminSetMember = (m: { email: string; team_id: number; is_admin: boolean }) =>
-  request<AdminMember>('PUT', '/api/admin/members', m);
+/** Adds or changes a member. Fields left out keep their value; cf_secret is only ever written, never read back. */
+export const adminSetMember = (m: {
+  email: string;
+  team_id: number;
+  is_admin: boolean;
+  name?: string;
+  short?: string;
+  cf_client_id?: string;
+  cf_secret?: string;
+  clear_cf?: boolean;
+}) => request<AdminMember>('PUT', '/api/admin/members', m);
 export const adminDeleteMember = (email: string) =>
   request<void>('DELETE', `/api/admin/members?email=${encodeURIComponent(email)}`);
 export const adminAgents = () => request<AdminAgent[]>('GET', '/api/admin/agents');
-export const adminCreateAgent = (name: string, teamId: number, email: string) =>
-  request<CreatedAgent>('POST', '/api/admin/agents', { name, team_id: teamId, email });
 /** Ties an agent to a member of its team; an empty address releases it. */
 export const adminSetAgentEmail = (id: number, email: string) =>
   request<AdminAgent>('PUT', `/api/admin/agents/${id}`, { email });
@@ -137,3 +146,12 @@ export const adminMapCarName = (teamId: number, id: number, vehicleName: string)
   request<void>('PUT', `/api/admin/cars/${id}/names`, { team_id: teamId, vehicle_name: vehicleName });
 export const adminUnmapCarName = (teamId: number, vehicleName: string) =>
   request<void>('DELETE', `/api/admin/car-names?team_id=${teamId}&name=${encodeURIComponent(vehicleName)}`);
+
+export const getMyAgent = () => request<MyAgent>('GET', '/api/me/agent');
+
+/** Issues a new token for the member's agent (the earlier one stops working) and returns the finished agent.toml. */
+export async function issueAgentConfig(): Promise<string> {
+  const res = await fetch('/api/me/agent/config', { method: 'POST' });
+  if (!res.ok) throw await failure(res);
+  return res.text();
+}

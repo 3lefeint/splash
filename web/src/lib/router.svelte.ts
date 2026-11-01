@@ -1,8 +1,9 @@
 export const routes = ['dashboard', 'plan', 'map', 'sessions', 'settings', 'tracks', 'rest', 'admin'] as const;
 export type Route = (typeof routes)[number];
 
-/** The pages shown in the navigation: the admin page only for administrators. */
-export const visibleRoutes = (admin: boolean): Route[] => routes.filter((r) => r !== 'admin' || admin);
+/** The pages shown in the navigation. The administration page is for every member: it holds their own agent, and the
+ * rest of it appears only for administrators. */
+export const visibleRoutes = (): Route[] => [...routes];
 
 export function parseRoute(hash: string): Route {
   const name = hash.replace(/^#\/?/, '');

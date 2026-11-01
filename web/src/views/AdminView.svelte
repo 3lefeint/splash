@@ -1,13 +1,14 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import {
-    adminAgents, adminCars, adminCreateAgent, adminCreateCar, adminCreateTeam, adminDeleteCar, adminDeleteMember,
+    adminAgents, adminCars, adminCreateCar, adminCreateTeam, adminDeleteCar, adminDeleteMember,
     adminMapCarName, adminUnmapCarName, adminMembers, adminRevokeAgent, adminSetAgentEmail,
     adminSetMember, adminTeams,
   } from '../lib/api';
+  import MyAgentPanel from '../components/MyAgentPanel.svelte';
   import { identity } from '../lib/me.svelte';
   import { t } from '../lib/settings.svelte';
-  import type { AdminAgent, AdminMember, AdminTeam, CreatedAgent, TeamCars } from '../lib/types';
+  import type { AdminAgent, AdminMember, AdminTeam, TeamCars } from '../lib/types';
 
   let teams = $state<AdminTeam[]>([]);
   let members = $state<AdminMember[]>([]);
@@ -22,11 +23,14 @@
   let memberEmail = $state('');
   let memberTeam = $state(0);
   let memberAdmin = $state(false);
-  // The name typed into the "new agent" field of a member, by address, and the member picked for an agent without one.
-  let agentNames = $state<Record<string, string>>({});
+  let memberName = $state('');
+  let memberShort = $state('');
+  let memberCfId = $state('');
+  // The Cloudflare secret is only ever written: the field stays empty after saving, and empty keeps the stored one.
+  let memberCfSecret = $state('');
+  let memberClearCf = $state(false);
+  // The member picked for an agent that belongs to nobody.
   let assignTo = $state<Record<number, string>>({});
-  // The token of the agent created last. It is held here only until the admin has copied it.
-  let created = $state<CreatedAgent | null>(null);
 
   const teamName = (id: number) => teams.find((x) => x.id === id)?.name ?? String(id);
   const agentsOf = (email: string) => agents.filter((a) => a.email === email);
@@ -64,18 +68,31 @@
     });
   const saveMember = () =>
     run(async () => {
-      await adminSetMember({ email: memberEmail.trim(), team_id: memberTeam, is_admin: memberAdmin });
-      memberEmail = '';
-      memberAdmin = false;
+      await adminSetMember({
+        email: memberEmail.trim(), team_id: memberTeam, is_admin: memberAdmin, name: memberName.trim(), short: memberShort.trim(),
+        cf_client_id: memberCfId.trim(), ...(memberCfSecret.trim() ? { cf_secret: memberCfSecret.trim() } : {}),
+        ...(memberClearCf ? { clear_cf: true } : {}),
+      });
+      resetMemberForm();
     });
+  function resetMemberForm(): void {
+    memberEmail = memberName = memberShort = memberCfId = memberCfSecret = '';
+    memberAdmin = memberClearCf = false;
+  }
+  // Fills the form with a member to change; the secret field stays empty.
+  function editMember(m: AdminMember): void {
+    memberEmail = m.email;
+    memberTeam = m.team_id;
+    memberAdmin = m.is_admin;
+    memberName = m.name;
+    memberShort = m.short;
+    memberCfId = m.cf_client_id;
+    memberCfSecret = '';
+    memberClearCf = false;
+  }
   const removeMember = (email: string) => {
     if (confirm(t('admin.confirmRemove', { email }))) void run(() => adminDeleteMember(email));
   };
-  const addAgent = (m: AdminMember) =>
-    run(async () => {
-      created = await adminCreateAgent((agentNames[m.email] ?? '').trim(), m.team_id, m.email);
-      agentNames[m.email] = '';
-    });
   const addCar = () =>
     run(async () => {
       await adminCreateCar(carTeam, newCar.trim());
@@ -97,28 +114,12 @@
   const revoke = (a: AdminAgent) => {
     if (confirm(t('admin.confirmRevoke', { name: a.name }))) void run(() => adminRevokeAgent(a.id));
   };
-  async function copyToken(): Promise<void> {
-    if (created) await navigator.clipboard?.writeText(created.token).catch(() => {});
-  }
 </script>
 
 <h1>{t('admin.title')}</h1>
-{#if !identity.isAdmin}
-  <p class="muted">{t('admin.only')}</p>
-{:else}
+<MyAgentPanel />
+{#if identity.isAdmin}
   {#if error}<p class="err">{error}</p>{/if}
-
-  {#if created}
-    <section class="token" role="alert">
-      <h2>{t('admin.tokenTitle', { name: created.name })}</h2>
-      <p class="muted">{t('admin.tokenWarn')}</p>
-      <code>{created.token}</code>
-      <div class="row">
-        <button onclick={copyToken}>{t('admin.copy')}</button>
-        <button class="primary" onclick={() => (created = null)}>{t('admin.tokenDismiss')}</button>
-      </div>
-    </section>
-  {/if}
 
   <section>
     <h2>{t('admin.teams')}</h2>
@@ -137,16 +138,25 @@
     <p class="muted">{t('admin.agentsHelp')}</p>
     <div class="scroll">
       <table>
-        <thead><tr><th>{t('admin.email')}</th><th>{t('admin.team')}</th><th>{t('admin.isAdmin')}</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            <th>{t('admin.email')}</th><th>{t('admin.memberName')}</th><th>{t('admin.short')}</th><th>{t('admin.team')}</th>
+            <th>{t('admin.isAdmin')}</th><th>{t('admin.cloudflare')}</th><th></th>
+          </tr>
+        </thead>
         {#each members as m (m.email)}
           <tbody>
             <tr class="member">
-              <td>{m.email}</td><td>{teamName(m.team_id)}</td><td>{m.is_admin ? '✓' : ''}</td>
-              <td><button class="danger" onclick={() => removeMember(m.email)}>{t('admin.remove')}</button></td>
+              <td>{m.email}</td><td>{m.name || '–'}</td><td>{m.short || '–'}</td><td>{teamName(m.team_id)}</td><td>{m.is_admin ? '✓' : ''}</td>
+              <td title={m.cf_client_id}>{m.cf_client_id ? (m.has_cf_secret ? '✓' : t('admin.cfNoSecret')) : '–'}</td>
+              <td class="actions">
+                <button onclick={() => editMember(m)}>{t('admin.edit')}</button>
+                <button class="danger" onclick={() => removeMember(m.email)}>{t('admin.remove')}</button>
+              </td>
             </tr>
             {#each agentsOf(m.email) as a (a.id)}
               <tr class="agent" class:gone={a.revoked}>
-                <td colspan="2">↳ {a.name} <span class="muted">· {a.revoked ? t('admin.revoked') : t('admin.active')} · {t('admin.lastSeen')}: {when(a.last_seen)}</span></td>
+                <td colspan="5">↳ {a.name} <span class="muted">· {a.revoked ? t('admin.revoked') : t('admin.active')} · {t('admin.lastSeen')}: {when(a.last_seen)}</span></td>
                 <td></td>
                 <td class="actions">
                   {#if !a.revoked}
@@ -156,27 +166,34 @@
                 </td>
               </tr>
             {:else}
-              <tr class="agent"><td colspan="4" class="muted">↳ {t('admin.noAgents')}</td></tr>
+              <tr class="agent"><td colspan="7" class="muted">↳ {t('admin.noAgents')}</td></tr>
             {/each}
-            <tr class="agent">
-              <td colspan="4">
-                <form class="row" onsubmit={(e) => { e.preventDefault(); void addAgent(m); }}>
-                  <input bind:value={agentNames[m.email]} placeholder={t('admin.agentName')} maxlength="60" required />
-                  <button class="primary" type="submit">{t('admin.addAgent')}</button>
-                </form>
-              </td>
-            </tr>
           </tbody>
         {/each}
       </table>
     </div>
-    <form class="row" onsubmit={(e) => { e.preventDefault(); void saveMember(); }}>
-      <input type="email" bind:value={memberEmail} placeholder={t('admin.email')} maxlength="254" required />
-      <select bind:value={memberTeam} aria-label={t('admin.team')}>
-        {#each teams as x (x.id)}<option value={x.id}>{x.name}</option>{/each}
-      </select>
-      <label class="check"><input type="checkbox" bind:checked={memberAdmin} /> {t('admin.isAdmin')}</label>
-      <button class="primary" type="submit">{t('admin.saveMember')}</button>
+    <form class="form" onsubmit={(e) => { e.preventDefault(); void saveMember(); }}>
+      <div class="row">
+        <input type="email" bind:value={memberEmail} placeholder={t('admin.email')} maxlength="254" required />
+        <select bind:value={memberTeam} aria-label={t('admin.team')}>
+          {#each teams as x (x.id)}<option value={x.id}>{x.name}</option>{/each}
+        </select>
+        <label class="check"><input type="checkbox" bind:checked={memberAdmin} /> {t('admin.isAdmin')}</label>
+      </div>
+      <div class="row">
+        <input bind:value={memberName} placeholder={t('admin.memberName')} maxlength="60" />
+        <input bind:value={memberShort} placeholder={t('admin.short')} maxlength="8" pattern={'[A-Za-z0-9]{2,8}'} title={t('admin.shortHelp')} />
+      </div>
+      <div class="row">
+        <input bind:value={memberCfId} placeholder={t('admin.cfId')} maxlength="200" autocomplete="off" />
+        <input type="password" bind:value={memberCfSecret} placeholder={t('admin.cfSecret')} maxlength="500" autocomplete="new-password" />
+        <label class="check"><input type="checkbox" bind:checked={memberClearCf} /> {t('admin.cfClear')}</label>
+      </div>
+      <p class="muted small">{t('admin.cfHelp')}</p>
+      <div class="row">
+        <button class="primary" type="submit">{t('admin.saveMember')}</button>
+        <button type="button" onclick={resetMemberForm}>{t('admin.clearForm')}</button>
+      </div>
     </form>
   </section>
 
@@ -261,12 +278,12 @@
   tr.member td { border-top: 2px solid var(--border); font-weight: 600; }
   tr.agent td { border-top: none; padding-top: 2px; font-weight: 400; }
   tr.gone { opacity: 0.6; }
+  .form { margin-top: 14px; }
+  .small { font-size: 0.8rem; }
   .actions { display: flex; flex-wrap: wrap; gap: 6px; }
   .car { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
   .names { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 8px 0; padding: 0; }
   .names li { padding: 2px 8px; border-radius: 999px; background: var(--surface-2); }
   .x { min-height: 0; padding: 0 4px; border: none; background: transparent; color: var(--muted); }
-  .token { border: 1px solid var(--accent); border-radius: 12px; padding: 12px 16px; background: var(--surface-2); }
-  .token code { display: block; margin: 8px 0; padding: 8px; overflow-wrap: anywhere; user-select: all; background: var(--bg); border-radius: 8px; }
   .err { color: var(--bad, #e5534b); }
 </style>

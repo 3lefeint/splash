@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  adminCars, adminCreateAgent, adminDeleteMember, adminMapCarName, adminUnmapCarName, adminRevokeAgent, adminSetAgentEmail, adminSetMember, ApiError, clearOverride,
-  getMe, getParams, pitRequest, putPlan, setOverride, useAgent,
+  adminCars, adminDeleteMember, adminMapCarName, adminUnmapCarName, adminRevokeAgent, adminSetAgentEmail, adminSetMember, ApiError, clearOverride,
+  getMe, getParams, issueAgentConfig, pitRequest, putPlan, setOverride, useAgent,
 } from './api';
 
 function respond(status: number, body?: unknown) {
@@ -45,12 +45,21 @@ describe('api', () => {
     vi.stubGlobal('fetch', respond(200, { email: 'a@example.com', team_id: 1, team: 'default', is_admin: true }));
     expect(await getMe()).toMatchObject({ is_admin: true });
   });
-  it('creates an agent and returns the token of the reply', async () => {
-    const f = respond(201, { id: 3, name: 'pc', team_id: 1, email: 'a@example.com', revoked: false, last_seen: null, token: 'tok' });
+  it('issues the configuration of the own agent as text and raises the message of a refusal', async () => {
+    const f = vi.fn(async () => new Response('[server]\ntoken = "t"\n', { status: 200 }));
     vi.stubGlobal('fetch', f);
-    expect((await adminCreateAgent('pc', 1, 'a@example.com')).token).toBe('tok');
+    expect(await issueAgentConfig()).toContain('token = "t"');
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
-    expect([url, init.method, init.body]).toEqual(['/api/admin/agents', 'POST', '{"name":"pc","team_id":1,"email":"a@example.com"}']);
+    expect([url, init.method]).toEqual(['/api/me/agent/config', 'POST']);
+    vi.stubGlobal('fetch', respond(409, { error: 'the configuration cannot be created yet: no_short' }));
+    await expect(issueAgentConfig()).rejects.toMatchObject({ status: 409, message: 'the configuration cannot be created yet: no_short' });
+  });
+  it('sends name, short name and Cloudflare data of a member', async () => {
+    const f = respond(200, {});
+    vi.stubGlobal('fetch', f);
+    await adminSetMember({ email: 'a@example.com', team_id: 1, is_admin: false, name: 'A', short: 'ab', cf_client_id: 'id', cf_secret: 's' });
+    const [, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ email: 'a@example.com', team_id: 1, is_admin: false, name: 'A', short: 'ab', cf_client_id: 'id', cf_secret: 's' });
   });
   it('addresses team cars by team and escapes vehicle names', async () => {
     const f = respond(200, { cars: [], unmapped: [] });
