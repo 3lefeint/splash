@@ -2,9 +2,9 @@
   import { corners } from '../lib/corners.svelte';
   import { locate } from '../lib/corners';
   import { t } from '../lib/settings.svelte';
-  import { live } from '../lib/store';
+  import { view } from '../lib/view.svelte';
 
-  const s = $derived(live.state);
+  const s = $derived(view.state);
   const dist = $derived(s?.field?.find((c) => c.ours)?.lap_dist ?? null);
   const where = $derived(dist != null && s?.track_length ? locate(corners.list, dist, s.track_length) : null);
 </script>

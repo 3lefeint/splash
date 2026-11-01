@@ -1,13 +1,13 @@
 <script lang="ts">
   import { tileInfo } from '../lib/info.svelte';
   import { t } from '../lib/settings.svelte';
-  import { live } from '../lib/store';
+  import { view } from '../lib/view.svelte';
 
-  const agents = $derived(live.state?.agents ?? []);
+  const agents = $derived(view.state?.agents ?? []);
   tileInfo(() => t('agents.help'));
 
   /** Seconds since a time given as ISO text, never negative. */
-  const age = (iso: string) => Math.max(Math.round((live.nowMs - Date.parse(iso)) / 1000), 0);
+  const age = (iso: string) => Math.max(Math.round((view.nowMs - Date.parse(iso)) / 1000), 0);
   const STALE = 10;
 </script>
 

@@ -2,14 +2,14 @@
   import { tileInfo } from '../lib/info.svelte';
   import { targetName, type Target } from '../lib/overlays';
   import { settings, t } from '../lib/settings.svelte';
-  import { live } from '../lib/store';
+  import { view } from '../lib/view.svelte';
   import { carNumber, classColor, hideKey } from '../lib/trackmap';
   import type { Overlay, Wheel } from '../lib/wear';
 
   let { full = false }: { full?: boolean } = $props();
 
-  const field = $derived(live.state?.field ?? []);
-  const waitForBase = $derived(settings.mapOverlay === 'delta' && !live.state?.wear_stats?.base);
+  const field = $derived(view.state?.field ?? []);
+  const waitForBase = $derived(settings.mapOverlay === 'delta' && !view.state?.wear_stats?.base);
   const hosted = tileInfo(() => (waitForBase ? t('wear.deltaWait') : null));
   const classNames = $derived([...new Set(field.map((c) => c.class))].sort());
   const cars = $derived(field.filter((c) => !c.ours).sort((a, b) => a.place - b.place));
@@ -32,7 +32,7 @@
   const wearOverlay = $derived(settings.mapOverlay === 'wear' || settings.mapOverlay === 'delta');
   const legend = $derived(
     settings.mapOverlay === 'time'
-      ? t(settings.mapTarget === 'best' ? 'map.legend.timeBest' : 'map.legend.time', { name: targetName(live.state, settings.mapTarget) })
+      ? t(settings.mapTarget === 'best' ? 'map.legend.timeBest' : 'map.legend.time', { name: targetName(view.state, settings.mapTarget) })
       : settings.mapOverlay === 'fuel' || settings.mapOverlay === 'speed' || settings.mapOverlay === 'brake'
         ? t(`map.legend.${settings.mapOverlay}` as 'map.legend.fuel')
         : '',

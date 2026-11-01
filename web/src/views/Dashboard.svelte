@@ -20,16 +20,16 @@
   import { dashboardLayout } from '../lib/layout.svelte';
   import type { Key } from '../lib/i18n';
   import { t } from '../lib/settings.svelte';
-  import { live } from '../lib/store';
+  import { view } from '../lib/view.svelte';
   import type { Opponent } from '../lib/types';
 
-  const s = $derived(live.state);
+  const s = $derived(view.state);
   $effect(() => corners.watch(s?.track));
   const car = $derived(s?.car);
   const race = $derived(s?.race);
   const plan = $derived(s?.stint_plan);
 
-  const toStop = $derived(race ? until(race.stint_end, live.etNow) : null);
+  const toStop = $derived(race ? until(race.stint_end, view.etNow) : null);
   const lowFuel = $derived(race != null && race.laps_to_stop <= 2);
   const saveDelta = $derived(
     race?.save_target != null && car?.fuel_per_lap != null ? race.save_target - car.fuel_per_lap : null,

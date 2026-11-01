@@ -3,7 +3,7 @@
   import { corners } from '../lib/corners.svelte';
   import { cornerColor, leader, stretches as cornerStretches } from '../lib/corners';
   import { settings, t } from '../lib/settings.svelte';
-  import { live } from '../lib/store';
+  import { view as shown } from '../lib/view.svelte';
   import { Animator, carNumber, classColor, fitView, hideKey, pointAt } from '../lib/trackmap';
   import { trackMaps } from '../lib/trackmaps.svelte';
   import { paintFor } from '../lib/overlays';
@@ -12,8 +12,8 @@
 
   let { compact = false }: { compact?: boolean } = $props();
 
-  const s = $derived(live.state);
-  const map = $derived(trackMaps.map);
+  const s = $derived(shown.state);
+  const map = $derived(shown.map ?? trackMaps.map);
   const view = $derived(map ? fitView(map.points) : null);
   // While the outline is recorded: the lap driven so far, as an open line that grows.
   const progress = $derived(!map ? trackMaps.progress : null);

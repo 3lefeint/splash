@@ -5,7 +5,7 @@
   import { excludedByReason, fitSettingsFor } from '../lib/fit';
   import { t } from '../lib/settings.svelte';
   import { applyFit, fitDiffers } from '../lib/strategy';
-  import { live } from '../lib/store';
+  import { view } from '../lib/view.svelte';
   import type { Key } from '../lib/i18n';
 
   const SETTING_LABEL = {
@@ -16,8 +16,8 @@
   } as const;
   /** Below this share of explained variation the fit is shown with a warning. */
   const WEAK = 0.5;
-  const fit = $derived(live.state?.fit);
-  const params = $derived(live.state?.params);
+  const fit = $derived(view.state?.fit);
+  const params = $derived(view.state?.params);
   const canApply = $derived(!!fit && !fit.reason && !!params && !!params.track && fitDiffers(params, fit));
   let busy = $state(false);
   let error = $state('');
