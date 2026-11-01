@@ -29,7 +29,7 @@
   const mode = $derived((id && dashboardLayout.optionsOf(id).mode) || 'normal');
 </script>
 
-<section class="tile {tone}" class:wide class:compact={mode === 'compact'} class:value={mode === 'value'} title={mode === 'value' ? title : undefined}>
+<section class="tile {tone}" data-tile={id} class:wide class:compact={mode === 'compact'} class:value={mode === 'value'} title={mode === 'value' ? title : undefined}>
   <header>
     <h2>{title}</h2>
     <span class="tools">
@@ -60,7 +60,7 @@
   /* One line: small title, the values side by side. */
   .tile.compact { padding: 8px 12px; gap: 2px; overflow: hidden; }
   .tile.compact h2 { font-size: 0.65rem; }
-  .tile.compact .body { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 0; }
+  :where(.tile.compact) .body { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 0; }
   /* Only the first value; the title is hidden and the tools sit in the corner. */
   .tile.value { padding: 6px 10px; overflow: hidden; }
   .tile.value header { position: absolute; top: 4px; right: 6px; opacity: 0.7; z-index: 1; }
