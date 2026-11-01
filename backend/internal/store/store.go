@@ -102,6 +102,9 @@ type DB interface {
 // LapRecord is a stored lap.
 type LapRecord struct {
 	SessionID string
+	// AgentID is the registered agent whose token delivered the lap; 0 when unknown (laps from before it was stored,
+	// the shared dev token).
+	AgentID int64
 	wire.Lap
 }
 
@@ -135,7 +138,7 @@ type Store interface {
 	// SaveLap upserts a lap. A field that is null in the new record keeps its
 	// stored value, so the driver agent's fuel data and the spotter agent's
 	// field data end up in one row.
-	SaveLap(ctx context.Context, sessionID string, l wire.Lap) error
+	SaveLap(ctx context.Context, sessionID string, l wire.Lap, agentID int64) error
 	// SaveEvent applies a pit entry/exit or driver swap to the stops. Other kinds are ignored.
 	SaveEvent(ctx context.Context, sessionID string, et float64, e wire.Event) error
 	// Progress returns the highest durable seq stored for an agent and session.

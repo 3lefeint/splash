@@ -175,7 +175,7 @@ func TestTheEngineReadsTheSettingsAtEachCalculation(t *testing.T) {
 	// 7 laps with fuel loads and tyre ages that can be told apart
 	for i := 1; i <= 7; i++ {
 		start := 90 - float64(i)*2 - float64((i%3)*7)
-		r.st.SaveLap(ctx, sess, lapAt(i, 90+0.03*start+0.05*float64(i), start))
+		r.st.SaveLap(ctx, sess, lapAt(i, 90+0.03*start+0.05*float64(i), start), 0)
 	}
 	st, err := r.eng.Compute(ctx)
 	if err != nil || st.Fit == nil || st.Fit.Reason != "" || st.Fit.MinLaps != 5 {

@@ -69,6 +69,7 @@ type connStats struct {
 	start    time.Time
 	agent    string
 	role     string
+	ref      AgentRef // the agent the token belongs to; the zero value for the shared dev token
 	msgs     int
 	stored   int // durable messages stored on this connection
 	dups     int // durable messages that were resends of ones already stored
@@ -97,7 +98,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer c.CloseNow()
 	c.SetReadLimit(readLimit)
 	ctx := r.Context()
-	cs := &connStats{start: time.Now()}
+	cs := &connStats{start: time.Now(), ref: AgentFrom(r.Context())}
 	reason := "connection closed"
 	go s.keepAlive(ctx, c, cs)
 	var conn *commands.Conn
@@ -139,7 +140,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.Log.Debug("frame", "team", s.TeamID, "type", msg.Type, "bytes", len(data), "seq", msg.Seq)
 		if cs.agent == "" {
 			cs.agent, cs.role = clip(msg.AgentID), msg.Role
-			s.Log.Info("agent connected", "team", s.TeamID, "agent", cs.agent, "role", cs.role)
+			s.Log.Info("agent connected", "team", s.TeamID, "agent", cs.agent, "role", cs.role, "agent_id", cs.ref.ID)
 		}
 		if conn == nil && s.Cmds != nil {
 			conn = s.Cmds.Add(c, msg.Role, msg.AgentID)
@@ -247,7 +248,7 @@ func (s *Server) handle(ctx context.Context, m wire.Message, cs *connStats) (int
 	}
 	switch b := m.Body.(type) {
 	case wire.Lap:
-		if err := s.Store.SaveLap(ctx, m.SessionID, b); err != nil {
+		if err := s.Store.SaveLap(ctx, m.SessionID, b, cs.ref.ID); err != nil {
 			return 0, err
 		}
 	case wire.Event:

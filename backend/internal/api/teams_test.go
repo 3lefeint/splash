@@ -152,7 +152,7 @@ func TestTeamsDoNotSeeEachOthersWrittenData(t *testing.T) {
 		t.Fatalf("sessions: %s", body)
 	}
 	lt := 90.0
-	r.a.Store.SaveLap(context.Background(), "s1", wire.Lap{CarID: 0, VehicleName: "me", Lap: 1, LapTime: &lt})
+	r.a.Store.SaveLap(context.Background(), "s1", wire.Lap{CarID: 0, VehicleName: "me", Lap: 1, LapTime: &lt}, 0)
 	exportA := func() string { _, b := r.as(t, "a", "GET", "/api/sessions/s1/export?kind=laps", ""); return b }
 	exportB := func() string { _, b := r.as(t, "b", "GET", "/api/sessions/s1/export?kind=laps", ""); return b }
 	if got, other := strings.Count(exportA(), "\n"), strings.Count(exportB(), "\n"); got != 1 || other != 0 {
