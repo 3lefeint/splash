@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { COLS, place, rows, type Item } from '../lib/grid';
+  import { COLS, place, rowPixels, rows, type Item } from '../lib/grid';
 
   let {
     items,
@@ -13,6 +13,10 @@
     rowHeight = 92,
     gap = 12,
     minWidth = 640,
+    cols = COLS,
+    fit = false,
+    minRow = 40,
+    minW = 2,
   }: {
     items: Item[];
     edit?: boolean;
@@ -27,6 +31,13 @@
     gap?: number;
     /** Below this width the tiles are stacked in one column and cannot be moved. */
     minWidth?: number;
+    /** Columns of the grid. */
+    cols?: number;
+    /** The rows share the height of the box the grid sits in (it scrolls below ``minRow`` pixels per row) instead of having ``rowHeight``. */
+    fit?: boolean;
+    minRow?: number;
+    /** Narrowest an item can be made, in columns. */
+    minW?: number;
   } = $props();
 
   let width = $state(0);
@@ -34,8 +45,10 @@
 
   const narrow = $derived(width > 0 && width < minWidth);
   const shown = $derived(drag ? drag.live : items);
-  const colW = $derived((width + gap) / COLS);
-  const rowH = $derived(rowHeight + gap);
+  let boxHeight = $state(0);
+  const colW = $derived((width + gap) / cols);
+  const rowPx = $derived(fit ? rowPixels(boxHeight, Math.max(rows(shown), 1), gap, minRow, rowHeight) : rowHeight);
+  const rowH = $derived(rowPx + gap);
   const height = $derived(Math.max(rows(shown), 1) * rowH - gap);
 
   function style(i: Item): string {
@@ -56,8 +69,8 @@
     const from = drag.start.find((i) => i.id === drag!.id)!;
     drag.live =
       drag.mode === 'move'
-        ? place(drag.start, drag.id, { x: from.x + dx, y: from.y + dy })
-        : place(drag.start, drag.id, { w: Math.max(from.w + dx, 2), h: Math.max(from.h + dy, 1) });
+        ? place(drag.start, drag.id, { x: from.x + dx, y: from.y + dy }, cols)
+        : place(drag.start, drag.id, { w: Math.max(from.w + dx, minW), h: Math.max(from.h + dy, 1) }, cols);
   }
 
   function end(): void {
@@ -68,6 +81,7 @@
   }
 </script>
 
+<div class="box" class:fit bind:clientHeight={boxHeight}>
 <div class="area" class:stacked={narrow} class:edit bind:clientWidth={width} style={narrow ? '' : `height:${height}px`}>
   {#each narrow ? items : shown as item (item.id)}
     <div class="cell" class:dragging={drag?.id === item.id} style={narrow ? '' : style(item)}>
@@ -85,8 +99,10 @@
     </div>
   {/each}
 </div>
+</div>
 
 <style>
+  .box.fit { height: 100%; min-height: 0; overflow: auto; }
   .area { position: relative; }
   .area.stacked { display: grid; gap: 12px; }
   .cell { position: absolute; transition: left 0.12s, top 0.12s, width 0.12s, height 0.12s; }

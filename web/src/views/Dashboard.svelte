@@ -83,6 +83,16 @@
   {#snippet gear(id: string)}
     <TileGear {id}>
       {#if id === 'map'}<MapControls />{/if}
+      {#if id === 'setups'}
+        <div class="gearrow">
+          <label for="setup-cols">{t('setups.columns')}</label>
+          <select id="setup-cols" value={dashboardLayout.optionsOf('setups').columns ?? 2} onchange={(e) => dashboardLayout.setOption('setups', { columns: Number(e.currentTarget.value) })}>
+            {#each [1, 2, 3, 4] as n (n)}<option value={n}>{n}</option>{/each}
+          </select>
+        </div>
+        <label class="gearrow"><input type="checkbox" checked={setupsUi.arrange} onchange={() => (setupsUi.arrange = !setupsUi.arrange)} />{t('setups.arrange')}</label>
+        <p class="muted small">{t('setups.arrangeHint')}</p>
+      {/if}
     </TileGear>
   {/snippet}
 
@@ -267,6 +277,7 @@
     background: var(--warn); color: #231600; vertical-align: middle; letter-spacing: 0.03em;
   }
   .ai { margin-left: 8px; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--warn, #e5a50a); color: #231600; vertical-align: middle; }
+  .gearrow { display: flex; align-items: center; gap: 8px; }
   .plus { padding: 0 10px; font-size: 1.2rem; line-height: 1.6; }
   .opp { display: grid; grid-template-columns: 5.5rem 1fr auto; gap: 2px 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--border); }
   .opp:first-of-type { border-top: 0; }

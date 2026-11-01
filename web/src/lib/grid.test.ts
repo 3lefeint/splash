@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compact, place, reconcile, rows, type Item } from './grid';
+import { compact, fitItems, place, reconcile, rowPixels, rows, type Item } from './grid';
 
 const it_ = (id: string, x: number, y: number, w: number, h: number): Item => ({ id, x, y, w, h });
 const pos = (items: Item[], id: string) => {
@@ -65,5 +65,35 @@ describe('rows', () => {
   it('counts the used rows', () => {
     expect(rows([it_('a', 0, 0, 1, 2), it_('b', 1, 3, 1, 4)])).toBe(7);
     expect(rows([])).toBe(0);
+  });
+});
+
+describe('fitItems', () => {
+  it('puts buttons without a place into the first free cells, one by one', () => {
+    const out = fitItems(undefined, ['a', 'b', 'c'], 2);
+    expect(out.map((i) => [i.id, i.x, i.y, i.w, i.h])).toEqual([['a', 0, 0, 1, 1], ['b', 1, 0, 1, 1], ['c', 0, 1, 1, 1]]);
+  });
+
+  it('keeps stored places, drops buttons that are gone and places new ones around them', () => {
+    const stored: Item[] = [{ id: 'a', x: 0, y: 0, w: 2, h: 1 }, { id: 'gone', x: 0, y: 1, w: 1, h: 1 }];
+    const out = fitItems(stored, ['a', 'b'], 2);
+    expect(out.find((i) => i.id === 'a')).toEqual({ id: 'a', x: 0, y: 0, w: 2, h: 1 });
+    expect(out.find((i) => i.id === 'b')).toMatchObject({ x: 0, y: 1 });
+    expect(out.some((i) => i.id === 'gone')).toBe(false);
+  });
+
+  it('cuts a wide button to fewer columns and keeps nothing overlapping', () => {
+    const stored: Item[] = [{ id: 'a', x: 2, y: 0, w: 2, h: 1 }, { id: 'b', x: 0, y: 0, w: 1, h: 1 }];
+    const out = fitItems(stored, ['a', 'b'], 1);
+    expect(out.every((i) => i.x === 0 && i.w === 1)).toBe(true);
+    expect(new Set(out.map((i) => i.y)).size).toBe(2);
+  });
+});
+
+describe('rowPixels', () => {
+  it('shares the height among the rows and scrolls below the minimum', () => {
+    expect(rowPixels(200, 2, 8, 40, 60)).toBe(96);
+    expect(rowPixels(100, 4, 8, 40, 60)).toBe(40);
+    expect(rowPixels(0, 2, 8, 40, 60)).toBe(60);
   });
 });
