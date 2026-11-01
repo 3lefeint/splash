@@ -348,3 +348,17 @@ def test_the_agent_restarts_for_an_update_only_when_the_game_has_been_idle(tmp_p
     assert agent._update_due(base + update.IDLE_BEFORE_RESTART - 1) is False  # the game time moved a moment ago
     assert agent._update_due(base + update.IDLE_BEFORE_RESTART) is True
     agent.close()
+
+
+def test_the_player_keeps_a_position_on_the_way_into_the_pit_lane(tmp_path):
+    """On the shortcut of the 24h Nürburgring the game counts the player's distance from the line: negative before it."""
+    field = [{"id": 0, "name": b"me", "driver": b"a", "player": True, "control": 0, "laps": 3, "dist": -128.0, "pits": True, "pit_state": 2},
+             {"id": 1, "name": b"rival", "driver": b"r", "place": 2, "laps": 3, "dist": 1000.0}]
+    agent, _, _ = make_agent(tmp_path, fakes.scoring(field, mLapDist=25321.0), fakes.telemetry([{"id": 0, "fuel": 61.0}]))
+    agent.poll_scoring()
+    agent.poll_telemetry()
+    sc, tel = validate(agent.link.live["scoring"]), validate(agent.link.live["telemetry"])
+    me = next(v for v in sc["payload"]["vehicles"] if v["car_id"] == 0)
+    assert me["lap_dist"] == pytest.approx(25193.0)
+    assert tel["payload"]["lap_dist"] == pytest.approx(25193.0)
+    agent.close()

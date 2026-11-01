@@ -851,6 +851,11 @@ ON CONFLICT (track) DO UPDATE SET data = EXCLUDED.data`, l.Track, data)
 	return err
 }
 
+func (p *Postgres) DeletePitLane(ctx context.Context, track string) error {
+	_, err := p.pool.Exec(ctx, `DELETE FROM track_pits WHERE track = $1`, track)
+	return err
+}
+
 func (p *Postgres) TeamByName(ctx context.Context, name string) (Team, bool, error) {
 	var t Team
 	err := p.pool.QueryRow(ctx, `SELECT id, name FROM teams WHERE name = $1`, name).Scan(&t.ID, &t.Name)

@@ -52,7 +52,7 @@ class Agent:
         self.link_factory = link_factory or (lambda spool: Link(cfg.url, cfg.token, spool, cfg.cf_client_id, cfg.cf_client_secret))
         self.link = None
         self._link_task: asyncio.Task | None = None
-        self._player: tuple[int, str, float] | None = None  # slot id, vehicle name, lap distance
+        self._player: tuple[int, str, float | None] | None = None  # slot id, vehicle name, lap distance (None: unknown)
         self._vehicles = 0
         self._record = open(cfg.record_file, "a", encoding="utf-8") if cfg.record_file else None
         self._raw = RawWriter(cfg.raw_file) if cfg.raw_file else None
@@ -89,7 +89,7 @@ class Agent:
         if info.mInRealtime:
             for v in vehicles:
                 if v.mIsPlayer and v.mPlace >= 1:
-                    self._player = (v.mID, cv.text(v.mVehicleName), v.mLapDist)
+                    self._player = (v.mID, cv.text(v.mVehicleName), cv.lap_distance(v.mLapDist, info.mLapDist))
         if self._player is None:
             self.tracker.set_player(None)
 

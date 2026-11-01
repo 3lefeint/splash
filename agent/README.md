@@ -79,6 +79,13 @@ The checksum comes from the same release as the program, so it protects against 
 that was replaced by somebody with access to the repository. Only https addresses below `github.com/<repo>/releases/download/`
 are used.
 
+## Lap distance
+
+The game counts the distance of the player's car from the start line, so on a track with a shortcut (on the 24h
+Nürburgring the way back to the pits after the GP loop) it is negative before the line. The agent counts such a value
+back from the track length (-128 m on a 25321 m track is 25193 m) instead of dropping it; a value it cannot place (no
+track length, or farther back than a lap) is left out as before.
+
 ## Yellow flags
 
 The agent passes on the three sector flags it already reads and, per vehicle, `sector`, `flag` (only when not 0) and

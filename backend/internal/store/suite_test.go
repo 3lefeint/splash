@@ -269,6 +269,25 @@ func runSuite(t *testing.T, s Store) {
 		s.DeleteCar(ctx, cl.ID)
 	})
 
+	t.Run("a pit lane can be forgotten", func(t *testing.T) {
+		e, x := 25193.0, 319.0
+		if err := s.SavePitLane(ctx, pitlane.Lane{Track: "forget", EntryDist: &e, ExitDist: &x}); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok, _ := s.GetPitLane(ctx, "forget"); !ok {
+			t.Fatal("the lane was not stored")
+		}
+		if err := s.DeletePitLane(ctx, "forget"); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok, _ := s.GetPitLane(ctx, "forget"); ok {
+			t.Fatal("the lane is still there")
+		}
+		if err := s.DeletePitLane(ctx, "forget"); err != nil {
+			t.Fatalf("deleting a lane that is not there: %v", err)
+		}
+	})
+
 	t.Run("track map round trip", func(t *testing.T) {
 		if _, ok, _ := s.GetTrackMap(ctx, "ring"); ok {
 			t.Fatal("unexpected map")

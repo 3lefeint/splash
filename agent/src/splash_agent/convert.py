@@ -37,6 +37,23 @@ def nonneg(v: float) -> float | None:
     return v if math.isfinite(v) and v >= 0 else None
 
 
+def lap_distance(v: float, track_length: float | None) -> float | None:
+    """The distance along the lap from the start line, 0 up to the track length, or None when it is not known.
+
+    On a track with a shortcut (the 24h Nürburgring: back to the pits after the GP loop) the game counts the player's
+    distance from the start line, so before the line it is negative: -128 m is the place 128 m before the line, which is
+    the track length minus 128. Dropping those values left the player without a position on the way into the pit lane.
+    Without a usable track length a negative value stays unknown.
+    """
+    if not math.isfinite(v):
+        return None
+    if v >= 0:
+        return v
+    if track_length is not None and math.isfinite(track_length) and track_length > 0 and -v < track_length:
+        return v + track_length
+    return None
+
+
 def session_type(session: int) -> str:
     for lo, hi, name in SESSION_TYPES:
         if lo <= session <= hi:
@@ -77,7 +94,7 @@ _SECTORS = {1: 1, 2: 2, 0: 3}
 _CLEAR = (0, 11)
 
 
-def scoring_vehicle(v, with_sector: bool = False) -> dict | None:
+def scoring_vehicle(v, with_sector: bool = False, track_length: float | None = None) -> dict | None:
     """Wire vehicle for scoring, or None for a slot that is not scored yet.
 
     The sector of the player's own car is always added (the backend learns the sector borders from it), the sector of
@@ -104,7 +121,7 @@ def scoring_vehicle(v, with_sector: bool = False) -> dict | None:
         # The plugin reports sector 2 as S1+S2.
         "last_s2": s2 - s1 if s1 is not None and s2 is not None and s2 > s1 else None,
         "in_pits": bool(v.mInPits),
-        "lap_dist": nonneg(v.mLapDist),
+        "lap_dist": lap_distance(v.mLapDist, track_length),
         "x": num(v.mPos.x),
         "z": num(v.mPos.z),
         "pit_state": v.mPitState,
@@ -129,7 +146,7 @@ def scoring_payload(info, vehicles, states: dict | None = None) -> dict:
     flags = list(info.mSectorFlag)
     sector_flag_up = any(f not in _CLEAR for f in flags)
     for v in vehicles:
-        w = scoring_vehicle(v, sector_flag_up)
+        w = scoring_vehicle(v, sector_flag_up, info.mLapDist)
         if w is not None:
             w.update((states or {}).get(v.mID, {}))
             # None means "unknown" and is dropped, the schema has no null for these.

@@ -277,6 +277,8 @@ type Store interface {
 	GetPitLane(ctx context.Context, track string) (l pitlane.Lane, ok bool, err error)
 	// SavePitLane stores the pit lane of a track, replacing an earlier one.
 	SavePitLane(ctx context.Context, l pitlane.Lane) error
+	// DeletePitLane forgets the pit lane of a track so that it is learned again; nothing happens if there is none.
+	DeletePitLane(ctx context.Context, track string) error
 
 	// SaveLapWear stores the tyre wear by track section of one lap, replacing an earlier record of the same lap.
 	SaveLapWear(ctx context.Context, sessionID string, carID int, vehicleName string, w wear.LapWear) error
