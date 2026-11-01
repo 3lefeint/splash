@@ -41,6 +41,17 @@ other cars to see whether the plugin delivers fuel and tyre data for remote vehi
 With `record_file` set, every message is also written to an NDJSON file (about 2-3 GB per 24 hours) that
 `splash-replay` can play back.
 
+## Start with Windows
+
+At the first start in a command window the agent asks once: "Start the Splash agent automatically when you sign in to
+Windows?". With yes it adds an entry to the Run key of the current user (no administrator rights; the agent runs in your
+session, which it needs to see the plugin buffers). The answer is kept in `autostart.json` in the spool folder, so the
+question does not come back. `splash-agent autostart on|off|status --config agent.toml` changes it later. The entry holds
+the full path of the program and of the configuration; the agent corrects it at the next start if the folder was moved.
+
+Relative file names in `agent.toml` (`spool_dir`, `record_file`, `raw_file`) count from the folder of the configuration, not
+from the folder the program is started in, because Windows starts autostart entries somewhere else.
+
 ## Yellow flags
 
 The agent passes on the three sector flags it already reads and, per vehicle, `sector`, `flag` (only when not 0) and

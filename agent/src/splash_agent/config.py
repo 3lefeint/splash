@@ -38,16 +38,23 @@ def load(path: str | Path) -> Config:
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path}: {e}") from e
     server, agent, poll = raw.get("server", {}), raw.get("agent", {}), raw.get("poll", {})
+    base = Path(path).resolve().parent  # relative file names count from the folder of the configuration, not from the
+    # folder the program happens to be started in (Windows starts programs of the Run key somewhere else)
+
+    def place(name: str, default: str) -> str:
+        value = str(agent.get(name, default))
+        return str(base / value) if value and not Path(value).is_absolute() else value
+
     log_section = raw.get("log", {})
     cfg = Config(
         url=str(server.get("url", "")),
         token=str(server.get("token", "")),
         agent_id=str(agent.get("id", "")).strip() or socket.gethostname(),
-        spool_dir=str(agent.get("spool_dir", "spool")),
-        record_file=str(agent.get("record_file", "")),
+        spool_dir=place("spool_dir", "spool"),
+        record_file=place("record_file", ""),
         telemetry_hz=float(poll.get("telemetry_hz", 5)),
         scoring_hz=float(poll.get("scoring_hz", 2)),
-        raw_file=str(agent.get("raw_file", "")),
+        raw_file=place("raw_file", ""),
         cf_client_id=str(server.get("cf_client_id", "")),
         cf_client_secret=str(server.get("cf_client_secret", "")),
         log_level=str(log_section.get("level", "INFO")),

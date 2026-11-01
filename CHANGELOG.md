@@ -64,6 +64,7 @@
 - Yellow flags: the sector flag only says there is a yellow; cars almost standing still in a flagged sector (not in the pits) are marked as probable causes on the map and in the rivals list, and an alert line shows the nearest one ahead with distance and corner ("Yellow in 340 m, before <corner>") or "Yellow, cause unknown"; two independent settings for the alert line and the markers; the agent adds the sector of the cars to the scoring message (the backend must be updated first)
 - Audit log of all write requests (time, e-mail, team, method, path)
 - Rate limits per identity on write requests, SSE streams and agent connections (`SPLASH_RATE_WRITES_PER_MIN`, `SPLASH_RATE_CONNECTS_PER_MIN`), answered with 429 and `Retry-After`
+- Agent: at the first interactive start it asks once whether to start with Windows (entry in the Run key of the current user), `splash-agent autostart on|off|status` changes it later
 - Release flow with two tag series: `v*` builds the backend image, `agent-v*` publishes the Windows agent as a GitHub release with a SHA-256 checksum
 - Each lap stores the agent whose token delivered it (`laps.agent_id`), taken from the token and not from the agent id in the message
 - Live state, engine, SSE stream and overrides exist per agent instead of per team, so members who train at the same time, also in different sessions, no longer disturb each other; `/api/state`, `/api/stream` and `/api/overrides` take `?agent=<id>` and otherwise show the agent of the member's own address (an agent can be tied to a member in the admin API, `PUT /api/admin/agents/{id}`, or when it is created) or an empty state if the member has none, and one active agent when authentication is off; `GET /api/agents` lists the agents of the team for choosing; the state carries `agent_id` and `agent_name`
@@ -80,6 +81,7 @@
 - The environments are called `splash` (prod) and `splash-stg` (staging): overlay `deploy/overlays/stg`, suffix `-stg`, Secrets `splash-stg-*`, database `splash_stg`
 - Prod and staging ingresses use the class `public`; the staging environment has no LAN host
 - Agents have no role any more: `agent.role` is gone from the configuration, the messages, the agent list and the command hub; the backend still accepts the role that agents of version 0.1 send and ignores it, and the agent id defaults to the name of the PC
+- Agent: relative file names in `agent.toml` (`spool_dir`, `record_file`, `raw_file`) count from the folder of the configuration, not from the working folder
 
 ### Fixed
 

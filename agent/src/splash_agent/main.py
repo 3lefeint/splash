@@ -8,7 +8,7 @@ import time
 from typing import Callable
 from urllib.parse import urlsplit
 
-from . import __version__, logsetup
+from . import __version__, autostart, logsetup
 from . import convert as cv
 from . import pitmenu, reader, structs as S
 from .config import Config, ConfigError, load
@@ -339,6 +339,7 @@ def cmd_run(args) -> int:
     log.info("splash-agent %s starting: server=%s agent=%s cloudflare_client_id=%s log_level=%s spool=%s",
              __version__, _server_summary(cfg.url), cfg.agent_id, "set" if cfg.cf_client_id else "not set",
              cfg.log_level.upper(), cfg.spool_dir)
+    autostart.offer(cfg.spool_dir, args.config)
     scoring, telemetry = _open_buffers()
     agent = Agent(cfg, scoring, telemetry,
                   open_pit_info=lambda: reader.open_windows_buffer(S.PitInfoBuffer, S.PIT_INFO_FILE))
@@ -354,6 +355,24 @@ def cmd_run(args) -> int:
     except KeyboardInterrupt:
         log.info("shutting down (interrupted)")
     log.info("stopped")
+    return 0
+
+
+def cmd_autostart(args) -> int:
+    """Turn the start with Windows on or off, or say whether it is on."""
+    if sys.platform != "win32":
+        print("starting with Windows is only available on Windows")
+        return 1
+    registry = autostart.WindowsRegistry()
+    if args.action == "on":
+        load(args.config)  # a configuration that cannot be read would make the entry useless
+        autostart.enable(registry, args.config)
+        print("the agent will start when you sign in to Windows")
+    elif args.action == "off":
+        autostart.disable(registry)
+        print("the agent will no longer start with Windows")
+    else:
+        print("on" if autostart.is_enabled(registry) else "off")
     return 0
 
 
@@ -425,6 +444,10 @@ def cli(argv: list[str] | None = None) -> int:
     run = sub.add_parser("run", parents=[common], help="stream the shared memory data to the backend")
     run.add_argument("--config", default="agent.toml")
     run.set_defaults(fn=cmd_run)
+    auto = sub.add_parser("autostart", parents=[common], help="start the agent when you sign in to Windows")
+    auto.add_argument("action", choices=["on", "off", "status"])
+    auto.add_argument("--config", default="agent.toml")
+    auto.set_defaults(fn=cmd_autostart)
     probe = sub.add_parser("probe", parents=[common], help="print the telemetry of all vehicles once")
     probe.set_defaults(fn=cmd_probe)
     sim = sub.add_parser("simulate", parents=[common], help="play a made-up race against a backend, no game needed")
