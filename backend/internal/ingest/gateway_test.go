@@ -332,3 +332,26 @@ func TestServerClosesAConnectionThatDoesNotAnswerPings(t *testing.T) {
 	case <-time.After(600 * time.Millisecond):
 	}
 }
+
+func TestLapsCarryTheAgentOfTheToken(t *testing.T) {
+	r := newGatewayRig(t, "shared")
+	ctx := context.Background()
+	ag, _ := r.db.CreateAgent(ctx, "driver", r.def, store.HashToken("own-token"))
+
+	// The agent id in the message is the agent's own claim; the stored agent comes from the token.
+	c := dial(t, r.url, "own-token")
+	send(t, c, "claims-to-be-someone-else", 1, "lap", fmt.Sprintf(lapPayload, 1))
+	c2 := dial(t, r.url, "shared")
+	send(t, c2, "shared-agent", 1, "lap", fmt.Sprintf(lapPayload, 2))
+
+	laps, err := r.db.ForTeam(r.def).Laps(ctx, "s1")
+	if err != nil || len(laps) != 2 {
+		t.Fatalf("laps=%+v err=%v", laps, err)
+	}
+	if laps[0].AgentID != ag.ID {
+		t.Errorf("lap %d: agent %d, want %d", laps[0].Lap.Lap, laps[0].AgentID, ag.ID)
+	}
+	if laps[1].AgentID != 0 {
+		t.Errorf("lap %d from the shared token: agent %d, want 0", laps[1].Lap.Lap, laps[1].AgentID)
+	}
+}

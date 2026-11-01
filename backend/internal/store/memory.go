@@ -46,6 +46,7 @@ type memAgent struct {
 type memTeam struct {
 	mu       sync.Mutex
 	laps     map[lapKey]wire.Lap
+	lapAgent map[lapKey]int64 // agent that delivered the lap first
 	stops    []StopRecord
 	progress map[string]int64
 
@@ -69,6 +70,7 @@ type lapKey struct {
 func newMemTeam() *memTeam {
 	return &memTeam{
 		laps:      map[lapKey]wire.Lap{},
+		lapAgent:  map[lapKey]int64{},
 		sessions:  map[string]SessionInfo{},
 		conds:     map[lapKey]LapConditions{},
 		weather:   map[string][]WeatherPoint{},
@@ -110,7 +112,7 @@ func (m *Memory) ForTeam(id int64) Store {
 	return v
 }
 
-func (m *Memory) SaveLap(_ context.Context, sessionID string, l wire.Lap) error {
+func (m *Memory) SaveLap(_ context.Context, sessionID string, l wire.Lap, agentID int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	k := lapKey{sessionID, l.CarID, l.VehicleName, l.Lap}
@@ -118,6 +120,9 @@ func (m *Memory) SaveLap(_ context.Context, sessionID string, l wire.Lap) error 
 		l = mergeLap(old, l)
 	}
 	m.laps[k] = l
+	if agentID != 0 && m.lapAgent[k] == 0 {
+		m.lapAgent[k] = agentID
+	}
 	return nil
 }
 
@@ -190,7 +195,7 @@ func (m *Memory) Laps(_ context.Context, sessionID string) ([]LapRecord, error) 
 	var out []LapRecord
 	for k, l := range m.laps {
 		if k.session == sessionID {
-			out = append(out, LapRecord{sessionID, l})
+			out = append(out, LapRecord{SessionID: sessionID, AgentID: m.lapAgent[k], Lap: l})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -222,7 +227,7 @@ func (m *Memory) LapsOfCar(_ context.Context, sessionID string, carID int, vehic
 	var out []LapRecord
 	for k, l := range m.laps {
 		if k.session == sessionID && k.car == carID && k.vehicle == vehicleName {
-			out = append(out, LapRecord{sessionID, l})
+			out = append(out, LapRecord{SessionID: sessionID, AgentID: m.lapAgent[k], Lap: l})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Lap.Lap < out[j].Lap.Lap })

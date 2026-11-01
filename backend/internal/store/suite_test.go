@@ -21,11 +21,11 @@ func runSuite(t *testing.T, s Store) {
 	t.Run("lap merge keeps non-null fields from both agents", func(t *testing.T) {
 		sess := "merge"
 		// Driver agent: fuel data, no sector times.
-		s.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 5, Driver: "a", LapTime: f(98), FuelStart: f(60), FuelEnd: f(57), Wear: []float64{1, 1, 1, 1}})
+		s.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 5, Driver: "a", LapTime: f(98), FuelStart: f(60), FuelEnd: f(57), Wear: []float64{1, 1, 1, 1}}, 0)
 		// Spotter agent: sector times, no fuel, flags a yellow.
-		s.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 5, LapTime: f(98), S1: f(30), S2: f(32), S3: f(36), FCY: true})
+		s.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 5, LapTime: f(98), S1: f(30), S2: f(32), S3: f(36), FCY: true}, 0)
 		// A resend of the first message changes nothing.
-		s.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 5, Driver: "a", LapTime: f(98), FuelStart: f(60), FuelEnd: f(57)})
+		s.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 5, Driver: "a", LapTime: f(98), FuelStart: f(60), FuelEnd: f(57)}, 0)
 		laps, err := s.Laps(ctx, sess)
 		if err != nil || len(laps) != 1 {
 			t.Fatalf("laps=%v err=%v", laps, err)
@@ -38,8 +38,8 @@ func runSuite(t *testing.T, s Store) {
 
 	t.Run("same lap number of different vehicles stays separate", func(t *testing.T) {
 		sess := "sep"
-		s.SaveLap(ctx, sess, wire.Lap{CarID: 1, VehicleName: "x", Lap: 1})
-		s.SaveLap(ctx, sess, wire.Lap{CarID: 1, VehicleName: "y", Lap: 1}) // reused slot id
+		s.SaveLap(ctx, sess, wire.Lap{CarID: 1, VehicleName: "x", Lap: 1}, 0)
+		s.SaveLap(ctx, sess, wire.Lap{CarID: 1, VehicleName: "y", Lap: 1}, 0) // reused slot id
 		laps, _ := s.Laps(ctx, sess)
 		if len(laps) != 2 {
 			t.Fatalf("laps=%d", len(laps))
@@ -80,9 +80,9 @@ func runSuite(t *testing.T, s Store) {
 	t.Run("laps of one car", func(t *testing.T) {
 		sess := "car"
 		for _, l := range []int{3, 1, 2} {
-			s.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: l})
+			s.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: l}, 0)
 		}
-		s.SaveLap(ctx, sess, wire.Lap{CarID: 1, VehicleName: "other", Lap: 1})
+		s.SaveLap(ctx, sess, wire.Lap{CarID: 1, VehicleName: "other", Lap: 1}, 0)
 		laps, err := s.LapsOfCar(ctx, sess, 0, "v")
 		if err != nil || len(laps) != 3 || laps[0].Lap.Lap != 1 || laps[2].Lap.Lap != 3 {
 			t.Fatalf("laps=%v err=%v", laps, err)
@@ -239,9 +239,9 @@ func runSuite(t *testing.T, s Store) {
 		s.TouchSession(ctx, SessionInfo{SessionID: "sess", Car: "M4", CarID: 0, LastSeen: t0.Add(time.Minute), LastET: 70})
 		s.TouchSession(ctx, SessionInfo{SessionID: "sess", CarID: -1, LastSeen: t0.Add(time.Minute), LastET: 70}) // unknown keeps the known id
 		s.TouchSession(ctx, SessionInfo{SessionID: "older", Track: "x", LastSeen: t0.Add(-time.Hour)})
-		s.SaveLap(ctx, "sess", wire.Lap{CarID: 0, VehicleName: "M4", Lap: 1})
-		s.SaveLap(ctx, "sess", wire.Lap{CarID: 1, VehicleName: "other", Lap: 1})
-		s.SaveLap(ctx, "sess", wire.Lap{CarID: 5, VehicleName: "M4", Lap: 1})                              // a rival with the same vehicle name
+		s.SaveLap(ctx, "sess", wire.Lap{CarID: 0, VehicleName: "M4", Lap: 1}, 0)
+		s.SaveLap(ctx, "sess", wire.Lap{CarID: 1, VehicleName: "other", Lap: 1}, 0)
+		s.SaveLap(ctx, "sess", wire.Lap{CarID: 5, VehicleName: "M4", Lap: 1}, 0)                           // a rival with the same vehicle name
 		s.SaveEvent(ctx, "sess", 50, wire.Event{Kind: wire.EventPitEntry, CarID: 1, VehicleName: "other"}) // a rival's stop is not counted
 		one, zero := 1, 0
 		amb := 21.5
@@ -375,9 +375,9 @@ func runTeamSuite(t *testing.T, db DB) {
 	const sess = "same-session" // both teams race in the same game session, so the id is the same
 
 	t.Run("laps, stops, weather, conditions, wear and progress are per team", func(t *testing.T) {
-		a.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 1, LapTime: f(90)})
-		b.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 1, LapTime: f(100)})
-		b.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 2, LapTime: f(101)})
+		a.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 1, LapTime: f(90)}, 0)
+		b.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 1, LapTime: f(100)}, 0)
+		b.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 2, LapTime: f(101)}, 0)
 		la, _ := a.Laps(ctx, sess)
 		lb, _ := b.Laps(ctx, sess)
 		if len(la) != 1 || *la[0].LapTime != 90 || len(lb) != 2 || *lb[0].LapTime != 100 {
@@ -582,6 +582,38 @@ func runTeamSuite(t *testing.T, db DB) {
 		}
 		if !found {
 			t.Fatalf("agents %+v", list)
+		}
+	})
+
+	t.Run("a lap keeps the agent that delivered it first", func(t *testing.T) {
+		st := db.ForTeam(first.ID)
+		one, err := db.CreateAgent(ctx, "lap-one", first.ID, HashToken("lap-one"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		two, err := db.CreateAgent(ctx, "lap-two", first.ID, HashToken("lap-two"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		const sess = "lap-agent"
+		st.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 1, LapTime: f(90)}, one.ID)
+		st.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 1, S1: f(30)}, two.ID) // same lap, other agent
+		st.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 2}, 0)                 // shared dev token
+		st.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 2}, two.ID)            // a later delivery fills it in
+		st.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 3}, 0)
+		laps, err := st.Laps(ctx, sess)
+		if err != nil || len(laps) != 3 {
+			t.Fatalf("laps=%+v err=%v", laps, err)
+		}
+		if laps[0].AgentID != one.ID || laps[1].AgentID != two.ID || laps[2].AgentID != 0 {
+			t.Fatalf("agents %d %d %d, want %d %d 0", laps[0].AgentID, laps[1].AgentID, laps[2].AgentID, one.ID, two.ID)
+		}
+		if laps[0].S1 == nil || *laps[0].S1 != 30 {
+			t.Fatalf("the fields of both deliveries are merged: %+v", laps[0])
+		}
+		own, err := st.LapsOfCar(ctx, sess, 0, "v")
+		if err != nil || len(own) != 3 || own[0].AgentID != one.ID {
+			t.Fatalf("laps of car %+v err=%v", own, err)
 		}
 	})
 }

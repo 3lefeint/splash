@@ -51,7 +51,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	return goose.UpContext(ctx, db, "migrations")
 }
 
-func (p *Postgres) SaveLap(ctx context.Context, sessionID string, l wire.Lap) error {
+func (p *Postgres) SaveLap(ctx context.Context, sessionID string, l wire.Lap, agentID int64) error {
 	var w [4]*float64
 	if len(l.Wear) == 4 {
 		for i := range w {
@@ -60,8 +60,8 @@ func (p *Postgres) SaveLap(ctx context.Context, sessionID string, l wire.Lap) er
 	}
 	_, err := p.pool.Exec(ctx, `
 INSERT INTO laps (session_id, car_id, vehicle_name, lap, driver, lap_time, s1, s2, s3,
-                  fuel_start, fuel_end, tyre_age, wear_fl, wear_fr, wear_rl, wear_rr, fcy, in_lap, out_lap, team_id)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+                  fuel_start, fuel_end, tyre_age, wear_fl, wear_fr, wear_rl, wear_rr, fcy, in_lap, out_lap, team_id, agent_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NULLIF($21::bigint, 0))
 ON CONFLICT (team_id, session_id, car_id, vehicle_name, lap) DO UPDATE SET
     driver     = COALESCE(NULLIF(EXCLUDED.driver, ''), laps.driver),
     lap_time   = COALESCE(EXCLUDED.lap_time, laps.lap_time),
@@ -77,9 +77,10 @@ ON CONFLICT (team_id, session_id, car_id, vehicle_name, lap) DO UPDATE SET
     wear_rr    = COALESCE(EXCLUDED.wear_rr, laps.wear_rr),
     fcy        = laps.fcy OR EXCLUDED.fcy,
     in_lap     = laps.in_lap OR EXCLUDED.in_lap,
-    out_lap    = laps.out_lap OR EXCLUDED.out_lap`,
+    out_lap    = laps.out_lap OR EXCLUDED.out_lap,
+    agent_id   = COALESCE(laps.agent_id, EXCLUDED.agent_id)`,
 		sessionID, l.CarID, l.VehicleName, l.Lap, l.Driver, l.LapTime, l.S1, l.S2, l.S3,
-		l.FuelStart, l.FuelEnd, l.TyreAge, w[0], w[1], w[2], w[3], l.FCY, l.InLap, l.OutLap, p.team)
+		l.FuelStart, l.FuelEnd, l.TyreAge, w[0], w[1], w[2], w[3], l.FCY, l.InLap, l.OutLap, p.team, agentID)
 	return err
 }
 
@@ -318,7 +319,7 @@ func scanParams(rows pgx.Rows) ([]Params, error) {
 }
 
 const lapSelect = `SELECT car_id, vehicle_name, lap, driver, lap_time, s1, s2, s3, fuel_start, fuel_end, tyre_age,
-       wear_fl, wear_fr, wear_rl, wear_rr, fcy, in_lap, out_lap FROM laps`
+       wear_fl, wear_fr, wear_rl, wear_rr, fcy, in_lap, out_lap, agent_id FROM laps`
 
 func scanLaps(rows pgx.Rows, sessionID string) ([]LapRecord, error) {
 	defer rows.Close()
@@ -326,14 +327,19 @@ func scanLaps(rows pgx.Rows, sessionID string) ([]LapRecord, error) {
 	for rows.Next() {
 		var l wire.Lap
 		var w [4]*float64
+		var agent *int64
 		if err := rows.Scan(&l.CarID, &l.VehicleName, &l.Lap, &l.Driver, &l.LapTime, &l.S1, &l.S2, &l.S3,
-			&l.FuelStart, &l.FuelEnd, &l.TyreAge, &w[0], &w[1], &w[2], &w[3], &l.FCY, &l.InLap, &l.OutLap); err != nil {
+			&l.FuelStart, &l.FuelEnd, &l.TyreAge, &w[0], &w[1], &w[2], &w[3], &l.FCY, &l.InLap, &l.OutLap, &agent); err != nil {
 			return nil, err
 		}
 		if w[0] != nil && w[1] != nil && w[2] != nil && w[3] != nil {
 			l.Wear = []float64{*w[0], *w[1], *w[2], *w[3]}
 		}
-		out = append(out, LapRecord{sessionID, l})
+		rec := LapRecord{SessionID: sessionID, Lap: l}
+		if agent != nil {
+			rec.AgentID = *agent
+		}
+		out = append(out, rec)
 	}
 	return out, rows.Err()
 }

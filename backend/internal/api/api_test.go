@@ -318,8 +318,8 @@ func TestSessionsListAndCsvExport(t *testing.T) {
 	ctx := context.Background()
 	r.st.TouchSession(ctx, store.SessionInfo{SessionID: "s1", Track: "monza", SessionType: "race", Car: "me", LastSeen: time.Now()})
 	lt := 98.4
-	r.st.SaveLap(ctx, "s1", wire.Lap{CarID: 0, VehicleName: "me", Lap: 1, LapTime: &lt, Driver: "a, b"})
-	r.st.SaveLap(ctx, "s1", wire.Lap{CarID: 7, VehicleName: "rival", Lap: 1})
+	r.st.SaveLap(ctx, "s1", wire.Lap{CarID: 0, VehicleName: "me", Lap: 1, LapTime: &lt, Driver: "a, b"}, 0)
+	r.st.SaveLap(ctx, "s1", wire.Lap{CarID: 7, VehicleName: "rival", Lap: 1}, 0)
 	amb := 20.5
 	r.st.SaveLapConditions(ctx, store.LapConditions{SessionID: "s1", CarID: 0, VehicleName: "me", Lap: 1, Ambient: &amb,
 		Surface: []float64{80, 81, 82, 83}, CompoundFront: "Medium"})

@@ -43,7 +43,7 @@ func (r *rig) laps(n int) {
 	fuel := 90.0
 	for i := 1; i <= n; i++ {
 		r.st.SaveLap(context.Background(), sess, wire.Lap{CarID: 0, VehicleName: "me", Lap: i, Driver: "dme",
-			LapTime: fp(100), FuelStart: fp(fuel), FuelEnd: fp(fuel - 3)})
+			LapTime: fp(100), FuelStart: fp(fuel), FuelEnd: fp(fuel - 3)}, 0)
 		fuel -= 3
 	}
 }
