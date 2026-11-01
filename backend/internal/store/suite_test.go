@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -803,6 +804,72 @@ func runTeamSuite(t *testing.T, db DB) {
 		}
 		if !found {
 			t.Fatal("session missing in the summary")
+		}
+	})
+
+	t.Run("history laps: same track and team car, earlier sessions, not left out", func(t *testing.T) {
+		st := db.ForTeam(first.ID)
+		car, _ := st.CreateCar(ctx, "Hist car")
+		st.MapCarName(ctx, car.ID, "hist red")
+		st.MapCarName(ctx, car.ID, "hist blue")
+		t0 := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+		session := func(id, track, vehicle string, hours int) {
+			st.TouchSession(ctx, SessionInfo{SessionID: id, Track: track, Car: vehicle, StartedAt: t0.Add(time.Duration(hours) * time.Hour), LastSeen: t0.Add(time.Duration(hours) * time.Hour)})
+		}
+		lap := func(id, vehicle string, n int, fuel bool) {
+			l := wire.Lap{CarID: 0, VehicleName: vehicle, Lap: n, Driver: "d", LapTime: f(90)}
+			if fuel {
+				l.FuelStart, l.FuelEnd = f(60), f(57)
+			}
+			st.SaveLap(ctx, id, l, 0)
+		}
+		session("h-new", "hist-track", "hist blue", 5)
+		session("h-old", "hist-track", "hist red", 1)
+		session("h-cur", "hist-track", "hist red", 9)
+		session("h-elsewhere", "hist-other-track", "hist red", 2)
+		session("h-rival", "hist-track", "somebody else", 3)
+		lap("h-old", "hist red", 1, true)
+		lap("h-old", "hist red", 2, true)
+		lap("h-old", "hist red", 3, false) // no fuel figures: a rival or a lap without telemetry
+		lap("h-new", "hist blue", 1, true) // another livery of the same team car
+		lap("h-cur", "hist red", 1, true)  // the running session is left out
+		lap("h-elsewhere", "hist red", 1, true)
+		lap("h-rival", "somebody else", 1, true)
+		st.SaveLapConditions(ctx, LapConditions{SessionID: "h-old", CarID: 0, VehicleName: "hist red", Lap: 2, Rain: f(0.4), Wetness: f(0.5)})
+
+		got, err := st.HistoryLaps(ctx, "hist-track", "hist red", "h-cur")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids := ""
+		for _, h := range got {
+			ids += h.SessionID + ":" + strconv.Itoa(h.Lap.Lap) + " "
+		}
+		if ids != "h-old:1 h-old:2 h-new:1 " {
+			t.Fatalf("history %q: want the old session first, laps with fuel figures only, both liveries of the team car", ids)
+		}
+		if got[1].Rain == nil || *got[1].Rain != 0.4 || got[1].Wetness == nil || got[0].Rain != nil || !got[0].StartedAt.Before(got[2].StartedAt) {
+			t.Fatalf("conditions and start time: %+v", got)
+		}
+		// asked through the other livery it is the same history
+		if again, _ := st.HistoryLaps(ctx, "hist-track", "hist blue", "h-cur"); len(again) != 3 {
+			t.Fatalf("through the other livery: %d laps", len(again))
+		}
+		// a name without a team car sees only its own laps
+		if solo, _ := st.HistoryLaps(ctx, "hist-track", "somebody else", ""); len(solo) != 1 || solo[0].SessionID != "h-rival" {
+			t.Fatalf("unmapped name: %+v", solo)
+		}
+
+		// left-out laps and sessions are not part of it; a lap taken in inside a left-out session is
+		yes, no := true, false
+		st.SetLapExcluded(ctx, "h-old", 0, "hist red", 1, &yes)
+		st.SetSessionExcluded(ctx, "h-new", true)
+		if got, _ = st.HistoryLaps(ctx, "hist-track", "hist red", "h-cur"); len(got) != 1 || got[0].Lap.Lap != 2 {
+			t.Fatalf("after leaving laps out: %+v", got)
+		}
+		st.SetLapExcluded(ctx, "h-new", 0, "hist blue", 1, &no)
+		if got, _ = st.HistoryLaps(ctx, "hist-track", "hist red", "h-cur"); len(got) != 2 {
+			t.Fatalf("a lap taken in inside a left-out session: %+v", got)
 		}
 	})
 

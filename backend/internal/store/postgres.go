@@ -342,28 +342,76 @@ const lapSelect = `SELECT l.car_id, l.vehicle_name, l.lap, l.driver, l.lap_time,
        COALESCE(l.excluded, s.excluded, false)
 FROM laps l LEFT JOIN sessions s ON s.team_id = l.team_id AND s.session_id = l.session_id`
 
+// lapScan holds the columns of lapSelect while a row is read.
+type lapScan struct {
+	l        wire.Lap
+	w        [4]*float64
+	agent    *int64
+	flag     *bool
+	excluded bool
+}
+
+func (c *lapScan) targets() []any {
+	l := &c.l
+	return []any{&l.CarID, &l.VehicleName, &l.Lap, &l.Driver, &l.LapTime, &l.S1, &l.S2, &l.S3, &l.FuelStart, &l.FuelEnd,
+		&l.TyreAge, &c.w[0], &c.w[1], &c.w[2], &c.w[3], &l.FCY, &l.InLap, &l.OutLap, &c.agent, &c.flag, &c.excluded}
+}
+
+func (c *lapScan) record(sessionID string) LapRecord {
+	if c.w[0] != nil && c.w[1] != nil && c.w[2] != nil && c.w[3] != nil {
+		c.l.Wear = []float64{*c.w[0], *c.w[1], *c.w[2], *c.w[3]}
+	}
+	rec := LapRecord{SessionID: sessionID, Lap: c.l, ExcludedFlag: c.flag, Excluded: c.excluded}
+	if c.agent != nil {
+		rec.AgentID = *c.agent
+	}
+	return rec
+}
+
 func scanLaps(rows pgx.Rows, sessionID string) ([]LapRecord, error) {
 	defer rows.Close()
 	var out []LapRecord
 	for rows.Next() {
-		var l wire.Lap
-		var w [4]*float64
-		var agent *int64
-		var flag *bool
-		var excluded bool
-		if err := rows.Scan(&l.CarID, &l.VehicleName, &l.Lap, &l.Driver, &l.LapTime, &l.S1, &l.S2, &l.S3,
-			&l.FuelStart, &l.FuelEnd, &l.TyreAge, &w[0], &w[1], &w[2], &w[3], &l.FCY, &l.InLap, &l.OutLap, &agent, &flag,
-			&excluded); err != nil {
+		var c lapScan
+		if err := rows.Scan(c.targets()...); err != nil {
 			return nil, err
 		}
-		if w[0] != nil && w[1] != nil && w[2] != nil && w[3] != nil {
-			l.Wear = []float64{*w[0], *w[1], *w[2], *w[3]}
+		out = append(out, c.record(sessionID))
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) HistoryLaps(ctx context.Context, track, vehicleName, exceptSession string) ([]HistoryLap, error) {
+	rows, err := p.pool.Query(ctx, `
+SELECT l.session_id, s.started_at, c.rain, c.wetness,
+       l.car_id, l.vehicle_name, l.lap, l.driver, l.lap_time, l.s1, l.s2, l.s3, l.fuel_start, l.fuel_end, l.tyre_age,
+       l.wear_fl, l.wear_fr, l.wear_rl, l.wear_rr, l.fcy, l.in_lap, l.out_lap, l.agent_id, l.excluded, false
+FROM laps l
+JOIN sessions s ON s.team_id = l.team_id AND s.session_id = l.session_id
+LEFT JOIN lap_conditions c ON c.team_id = l.team_id AND c.session_id = l.session_id AND c.car_id = l.car_id
+                          AND c.vehicle_name = l.vehicle_name AND c.lap = l.lap
+WHERE l.team_id = $1 AND s.track = $2 AND l.session_id <> $4
+  AND l.vehicle_name IN (
+        SELECT n2.vehicle_name FROM team_car_names n1 JOIN team_car_names n2 ON n2.car_id = n1.car_id
+        WHERE n1.team_id = $1 AND n1.vehicle_name = $3
+        UNION SELECT $3)
+  AND l.fuel_start IS NOT NULL AND l.fuel_end IS NOT NULL
+  AND NOT COALESCE(l.excluded, s.excluded, false)
+ORDER BY s.started_at, l.session_id, l.car_id, l.lap`, p.team, track, vehicleName, exceptSession)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []HistoryLap
+	for rows.Next() {
+		var h HistoryLap
+		var session string
+		var c lapScan
+		if err := rows.Scan(append([]any{&session, &h.StartedAt, &h.Rain, &h.Wetness}, c.targets()...)...); err != nil {
+			return nil, err
 		}
-		rec := LapRecord{SessionID: sessionID, Lap: l, ExcludedFlag: flag, Excluded: excluded}
-		if agent != nil {
-			rec.AgentID = *agent
-		}
-		out = append(out, rec)
+		h.LapRecord = c.record(session)
+		out = append(out, h)
 	}
 	return out, rows.Err()
 }

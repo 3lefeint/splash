@@ -310,6 +310,49 @@ func (m *Memory) CreateCar(_ context.Context, name string) (TeamCar, error) {
 	return *c, nil
 }
 
+func (m *Memory) HistoryLaps(_ context.Context, track, vehicleName, exceptSession string) ([]HistoryLap, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// the vehicle names of the team car the vehicle name belongs to, and the name itself
+	names := map[string]bool{vehicleName: true}
+	if id, ok := m.carNames[vehicleName]; ok {
+		for n, cid := range m.carNames {
+			if cid == id {
+				names[n] = true
+			}
+		}
+	}
+	var out []HistoryLap
+	for k, l := range m.laps {
+		sess, ok := m.sessions[k.session]
+		if !ok || sess.Track != track || k.session == exceptSession || !names[k.vehicle] || l.FuelStart == nil || l.FuelEnd == nil {
+			continue
+		}
+		rec := m.record(k.session, k, l)
+		if rec.Excluded {
+			continue
+		}
+		h := HistoryLap{LapRecord: rec, StartedAt: sess.StartedAt}
+		if c, ok := m.conds[k]; ok {
+			h.Rain, h.Wetness = c.Rain, c.Wetness
+		}
+		out = append(out, h)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		switch {
+		case !a.StartedAt.Equal(b.StartedAt):
+			return a.StartedAt.Before(b.StartedAt)
+		case a.SessionID != b.SessionID:
+			return a.SessionID < b.SessionID
+		case a.CarID != b.CarID:
+			return a.CarID < b.CarID
+		}
+		return a.Lap.Lap < b.Lap.Lap
+	})
+	return out, nil
+}
+
 func (m *Memory) SetLapExcluded(_ context.Context, sessionID string, carID int, vehicleName string, lap int, excluded *bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

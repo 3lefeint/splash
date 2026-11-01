@@ -129,6 +129,14 @@ type LapRecord struct {
 	wire.Lap
 }
 
+// HistoryLap is a lap of the driven car from an earlier session, with what the models need to judge it.
+type HistoryLap struct {
+	LapRecord
+	StartedAt time.Time
+	// Rain and Wetness are the conditions of the lap, nil when none were stored.
+	Rain, Wetness *float64
+}
+
 // StopRecord is a stored pit stop.
 type StopRecord struct {
 	SessionID    string
@@ -204,6 +212,10 @@ type Store interface {
 	SavePitSetup(ctx context.Context, s PitSetup) error
 	DeletePitSetup(ctx context.Context, car, name string) error
 
+	// HistoryLaps returns the laps of the driven car on a track from all sessions but one, oldest session first, for the
+	// models that learn from earlier sessions. The car is a vehicle name and counts with all vehicle names of its team
+	// car; only laps with fuel figures (the driven car) that are not left out are returned.
+	HistoryLaps(ctx context.Context, track, vehicleName, exceptSession string) ([]HistoryLap, error)
 	// SetLapExcluded sets the own flag of a lap: true leaves it out of the models, false takes it in even if its session
 	// is left out, nil lets it follow the session. ErrNoLap when the lap does not exist.
 	SetLapExcluded(ctx context.Context, sessionID string, carID int, vehicleName string, lap int, excluded *bool) error

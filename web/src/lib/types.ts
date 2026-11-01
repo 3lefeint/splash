@@ -214,6 +214,9 @@ export interface Strategy {
 
 export interface Fit {
   laps: number;
+  /** How many of the laps come from earlier sessions on this track with this car, and whose: the driver's own or the whole team's. */
+  history_laps?: number;
+  scope?: 'driver' | 'team';
   fuel_effect: number | null;
   deg_per_lap: number | null;
   base: number;

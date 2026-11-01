@@ -159,6 +159,7 @@ type Engine struct {
 	weather weatherLog
 	wet     wetCache
 	rivals  rivalLog
+	past    earlierCache
 }
 
 // New returns an Engine.
@@ -225,12 +226,17 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 	if fitOpt.SkipWet {
 		wet = e.wetLaps(ctx, snap.SessionID, tel.CarID, tel.VehicleName, len(laps))
 	}
-	st.Fit = fitModel(laps, setBoundaries(laps), wet, fitOpt)
+	earlier := e.earlier(ctx, sc.Track, tel.VehicleName, snap.SessionID)
+	driver := car.Driver
+	if driver == "" {
+		driver = lastDriverOf(laps)
+	}
+	st.Fit = fitWithHistory(fitGroup{laps: laps, bounds: setBoundaries(laps), wet: wet}, earlier, driver, fitOpt)
 	allStops, err := e.Store.Stops(ctx, snap.SessionID)
 	if err != nil {
 		return State{}, err
 	}
-	model, lapTime, lastDriver := fuelModel(laps)
+	model, lapTime, lastDriver := fuelModelWith(records(earlier), laps)
 	if car.Driver == "" {
 		car.Driver = lastDriver
 	}
@@ -271,9 +277,10 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 			car.Fuel, car.FuelOverridden = o.Value, true
 		}
 	}
-	fpl, haveFPL := model.FuelPerLap(car.Driver)
-	if !haveFPL {
-		fpl, haveFPL = model.Mean()
+	// The driver's own consumption counts once they have enough laps, before that the team's average does.
+	fpl, haveFPL := model.Mean()
+	if own, ok := model.FuelPerLap(car.Driver); ok && (model.Laps(car.Driver) >= minDriverLaps || !haveFPL) {
+		fpl, haveFPL = own, true
 	}
 	if o, ok := ov[store.OverrideFuelPerLap]; ok {
 		if haveFPL && math.Abs(fpl-o.Value) <= fuelPerLapOverrideTolerance {
@@ -335,11 +342,17 @@ func (e *Engine) Compute(ctx context.Context) (State, error) {
 // fuelModel feeds the stored laps of the car into the consumption model and
 // returns it with the average of the last valid lap times and the last driver.
 func fuelModel(laps []store.LapRecord) (m *strategy.Consumption, lapTime float64, lastDriver string) {
+	return fuelModelWith(nil, laps)
+}
+
+// fuelModelWith is fuelModel with the laps of earlier sessions fed in first, so the model knows the car and its drivers
+// from the first lap of a session. The last driver is the one of the running session's laps.
+func fuelModelWith(earlier, laps []store.LapRecord) (m *strategy.Consumption, lapTime float64, lastDriver string) {
 	m = strategy.NewConsumption(strategy.DefaultAlpha)
 	var times []float64
-	for _, r := range laps {
+	for i, r := range append(append([]store.LapRecord(nil), earlier...), laps...) {
 		l := r.Lap
-		if l.Driver != "" {
+		if l.Driver != "" && i >= len(earlier) {
 			lastDriver = l.Driver
 		}
 		if r.Excluded { // left out by a person

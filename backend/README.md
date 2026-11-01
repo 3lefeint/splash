@@ -194,8 +194,25 @@ Read and write endpoints have no authentication; only the agent socket uses the 
 parameters of the track and car (`fit_min_laps`, `fit_slow_percent`, `fit_skip_fcy`, `fit_skip_wet`, see the API
 table) and read at every calculation. A lap is left out as `missing_data` (no time or fuel), `in_lap`, `out_lap`, `fcy`
 (with `fit_skip_fcy`), `wet` (with `fit_skip_wet`) or `too_slow` (more than `fit_slow_percent` over the median of the
-other laps, from 3 laps on). `min_laps` is the number of clean laps needed. While there are too few laps (`reason`
-`few_laps`) `excluded` lists every left-out lap with its reason; otherwise it is `[]`, never null.
+other laps, from 3 laps on) or `manual` (left out by a person in the lap table). `min_laps` is the number of clean laps
+needed. While there are too few laps (`reason` `few_laps`) `excluded` lists every left-out lap of the running session
+with its reason; otherwise it is `[]`, never null.
+
+### Learning from earlier sessions
+
+The lap time model and the fuel model do not start from nothing: besides the running session they use the laps of the
+driven car from all earlier sessions of the team on the same track. The car counts with all vehicle names of its team
+car (a new livery keeps its history). Laps and sessions that a person left out are not used. The tyre age of a lap is
+worked out inside its own session, so the laps of different sessions do not mix up their tyre sets.
+
+- Fuel model: the laps of earlier sessions are fed in first, so fuel per lap and lap time are known from the first lap.
+  The model keeps one value per driver (the driver name the game reports); a driver's own value is used once they have
+  three valid laps, before that the average of the drivers with data.
+- Lap time model: the laps of the current driver count first; when the model cannot be fitted with them for lack of laps
+  (`fit_min_laps`), the laps of all drivers of the team are used. `fit.history_laps` says how many laps come from earlier
+  sessions and `fit.scope` whose they are (`driver` or `team`).
+- The laps of earlier sessions are read again every 15 seconds, so a lap left out counts from the next read on.
+- The per-section tyre wear statistics still use the running session only.
 
 ## Pit stops
 

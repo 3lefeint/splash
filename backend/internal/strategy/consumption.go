@@ -81,6 +81,14 @@ func (c *Consumption) FuelPerLap(driver string) (fpl float64, ok bool) {
 	return s.fuelPerLap, true
 }
 
+// Laps returns how many valid laps the driver has contributed.
+func (c *Consumption) Laps(driver string) int {
+	if s := c.drivers[driver]; s != nil {
+		return s.laps
+	}
+	return 0
+}
+
 // Mean returns the average consumption over all drivers with data. It is the
 // fallback for a driver who has not completed a valid lap yet.
 func (c *Consumption) Mean() (fpl float64, ok bool) {
