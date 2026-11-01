@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { tileInfo } from '../lib/info.svelte';
-  import { targetName, type Target } from '../lib/overlays';
+  import { type Target } from '../lib/overlays';
+  import MapLegend from './MapLegend.svelte';
   import { settings, t } from '../lib/settings.svelte';
   import { view } from '../lib/view.svelte';
   import { carNumber, classColor, hideKey } from '../lib/trackmap';
@@ -9,8 +9,6 @@
   let { full = false }: { full?: boolean } = $props();
 
   const field = $derived(view.state?.field ?? []);
-  const waitForBase = $derived(settings.mapOverlay === 'delta' && !view.state?.wear_stats?.base);
-  const hosted = tileInfo(() => (waitForBase ? t('wear.deltaWait') : null));
   const classNames = $derived([...new Set(field.map((c) => c.class))].sort());
   const cars = $derived(field.filter((c) => !c.ours).sort((a, b) => a.place - b.place));
 
@@ -30,13 +28,6 @@
   }
 
   const wearOverlay = $derived(settings.mapOverlay === 'wear' || settings.mapOverlay === 'delta');
-  const legend = $derived(
-    settings.mapOverlay === 'time'
-      ? t(settings.mapTarget === 'best' ? 'map.legend.timeBest' : 'map.legend.time', { name: targetName(view.state, settings.mapTarget) })
-      : settings.mapOverlay === 'fuel' || settings.mapOverlay === 'speed' || settings.mapOverlay === 'brake'
-        ? t(`map.legend.${settings.mapOverlay}` as 'map.legend.fuel')
-        : '',
-  );
 
   function setWheel(v: Wheel): void {
     settings.mapWheel = v;
@@ -58,9 +49,6 @@
           onclick={() => setOverlay(v as Overlay)}>{t(k as 'map.overlayOff')}</button>
       {/each}
     </div>
-    {#if waitForBase && !hosted}
-      <span class="muted hint">{t('wear.deltaWait')}</span>
-    {/if}
     {#if settings.mapOverlay === 'time'}
       <div class="seg">
         {#each [['ahead', 'map.targetAhead'], ['behind', 'map.targetBehind'], ['best', 'map.targetBest']] as [v, k] (v)}
@@ -69,7 +57,7 @@
         {/each}
       </div>
     {/if}
-    {#if legend}<span class="muted hint">{legend}</span>{/if}
+    <MapLegend />
     {#if full && wearOverlay}
       <div class="seg">
         {#each [['all', 'all'], ['0', 'FL'], ['1', 'FR'], ['2', 'RL'], ['3', 'RR']] as [v, label] (v)}
@@ -128,7 +116,6 @@
   .controls { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .group { display: flex; flex-direction: column; gap: 6px; }
   .label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-  .hint { font-size: 0.85rem; }
   .seg { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip.active { background: var(--accent); color: #04121c; border-color: transparent; font-weight: 600; }
   .row { display: flex; align-items: center; gap: 8px; min-height: 36px; }
