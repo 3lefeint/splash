@@ -342,6 +342,9 @@ func fuelModel(laps []store.LapRecord) (m *strategy.Consumption, lapTime float64
 		if l.Driver != "" {
 			lastDriver = l.Driver
 		}
+		if r.Excluded { // left out by a person
+			continue
+		}
 		if l.LapTime == nil || l.FuelStart == nil || l.FuelEnd == nil {
 			continue
 		}

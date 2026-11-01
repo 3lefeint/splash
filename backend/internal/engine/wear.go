@@ -62,7 +62,7 @@ func wearStats(laps []store.LapRecord, wears []wear.LapWear) *WearStats {
 			if !ok || w.Lap <= lo || w.Lap > hi || w.Coverage < minCoverage {
 				continue
 			}
-			if l.InLap || l.OutLap || l.FCY {
+			if l.InLap || l.OutLap || l.FCY || l.Excluded {
 				continue
 			}
 			clean = append(clean, w)

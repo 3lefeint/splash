@@ -227,7 +227,7 @@ export interface Fit {
 
 export interface ExcludedLap {
   lap: number;
-  reason: 'too_slow' | 'out_lap' | 'in_lap' | 'fcy' | 'wet' | 'missing_data' | string;
+  reason: 'manual' | 'too_slow' | 'out_lap' | 'in_lap' | 'fcy' | 'wet' | 'missing_data' | string;
 }
 
 /** The settings of the lap time model that change which laps count. */
@@ -369,6 +369,8 @@ export interface SessionSummary {
   conditions: number;
   ai_laps: number;
   player_laps: number;
+  /** The whole session is left out of the models. */
+  excluded: boolean;
 }
 
 export interface Me {
@@ -427,4 +429,45 @@ export interface TeamCars {
   cars: TeamCar[];
   /** Vehicle names seen in sessions that belong to no team car. */
   unmapped: string[];
+}
+
+/** A lap of a driven car in the lap table. */
+export interface LapRow {
+  car_id: number;
+  vehicle_name: string;
+  lap: number;
+  driver: string;
+  agent_id: number;
+  agent?: string;
+  lap_time: number | null;
+  s1: number | null;
+  s2: number | null;
+  s3: number | null;
+  fuel_used: number | null;
+  tyre_age: number | null;
+  wear?: number[];
+  fcy: boolean;
+  in_lap: boolean;
+  out_lap: boolean;
+  /** mControl: 0 person, 1 AI, 2 remote; null when unknown. */
+  control: number | null;
+  ambient: number | null;
+  track: number | null;
+  rain: number | null;
+  wetness: number | null;
+  pressure?: number[];
+  compound?: string;
+  /** Left out of the models, whether by the lap's own flag or by its session. */
+  excluded: boolean;
+  /** The lap's own choice: null follows the session. */
+  excluded_flag: boolean | null;
+  mine: boolean;
+  can_edit: boolean;
+}
+
+export interface SessionLaps {
+  session_id: string;
+  excluded: boolean;
+  can_edit_session: boolean;
+  laps: LapRow[];
 }

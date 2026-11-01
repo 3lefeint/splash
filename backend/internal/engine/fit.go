@@ -18,6 +18,7 @@ const (
 	excludeFCY     = "fcy"
 	excludeWet     = "wet"
 	excludeSlow    = "too_slow"
+	excludeManual  = "manual"
 )
 
 // FitOptions say which laps count for the model; they come from the parameters of the track and car.
@@ -36,7 +37,7 @@ func fitOptions(p store.Params) FitOptions {
 	return FitOptions{MinLaps: p.FitMinLaps, SlowPercent: p.FitSlowPercent, SkipFCY: *p.FitSkipFCY, SkipWet: *p.FitSkipWet}
 }
 
-// ExcludedLap is a lap that did not count for the model and why: missing_data, in_lap, out_lap, fcy, wet or too_slow.
+// ExcludedLap is a lap that did not count for the model and why: missing_data, in_lap, out_lap, fcy, wet, too_slow or manual (left out by a person).
 type ExcludedLap struct {
 	Lap    int    `json:"lap"`
 	Reason string `json:"reason"`
@@ -74,6 +75,8 @@ func fitModel(laps []store.LapRecord, bounds []int, wet func(lap int) bool, opt 
 		l := r.Lap
 		reason := ""
 		switch {
+		case r.Excluded:
+			reason = excludeManual
 		case l.LapTime == nil || l.FuelStart == nil || l.FuelEnd == nil:
 			reason = excludeMissing
 		case l.InLap:

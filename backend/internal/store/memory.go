@@ -46,7 +46,9 @@ type memAgent struct {
 type memTeam struct {
 	mu       sync.Mutex
 	laps     map[lapKey]wire.Lap
-	lapAgent map[lapKey]int64 // agent that delivered the lap first
+	lapAgent map[lapKey]int64 // agent that delivered the lap's fuel figures, else the first one
+	lapFlag  map[lapKey]bool  // own exclusion flag of a lap; absent follows the session
+	sessOut  map[string]bool  // sessions left out of the models
 	stops    []StopRecord
 	progress map[string]int64
 
@@ -74,6 +76,8 @@ func newMemTeam() *memTeam {
 	return &memTeam{
 		laps:      map[lapKey]wire.Lap{},
 		lapAgent:  map[lapKey]int64{},
+		lapFlag:   map[lapKey]bool{},
+		sessOut:   map[string]bool{},
 		sessions:  map[string]SessionInfo{},
 		cars:      map[int64]*TeamCar{},
 		carNames:  map[string]int64{},
@@ -121,11 +125,12 @@ func (m *Memory) SaveLap(_ context.Context, sessionID string, l wire.Lap, agentI
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	k := lapKey{sessionID, l.CarID, l.VehicleName, l.Lap}
+	hasFuel := l.FuelStart != nil || l.FuelEnd != nil
 	if old, ok := m.laps[k]; ok {
 		l = mergeLap(old, l)
 	}
 	m.laps[k] = l
-	if agentID != 0 && m.lapAgent[k] == 0 {
+	if agentID != 0 && (m.lapAgent[k] == 0 || hasFuel) {
 		m.lapAgent[k] = agentID
 	}
 	return nil
@@ -194,13 +199,22 @@ func (m *Memory) SetProgress(_ context.Context, agentID, sessionID string, seq i
 	return nil
 }
 
+// record is a stored lap with its agent and exclusion; the caller holds the lock.
+func (m *Memory) record(sessionID string, k lapKey, l wire.Lap) LapRecord {
+	rec := LapRecord{SessionID: sessionID, AgentID: m.lapAgent[k], Lap: l, Excluded: m.sessOut[sessionID]}
+	if v, ok := m.lapFlag[k]; ok {
+		rec.ExcludedFlag, rec.Excluded = &v, v
+	}
+	return rec
+}
+
 func (m *Memory) Laps(_ context.Context, sessionID string) ([]LapRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var out []LapRecord
 	for k, l := range m.laps {
 		if k.session == sessionID {
-			out = append(out, LapRecord{SessionID: sessionID, AgentID: m.lapAgent[k], Lap: l})
+			out = append(out, m.record(sessionID, k, l))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -232,7 +246,7 @@ func (m *Memory) LapsOfCar(_ context.Context, sessionID string, carID int, vehic
 	var out []LapRecord
 	for k, l := range m.laps {
 		if k.session == sessionID && k.car == carID && k.vehicle == vehicleName {
-			out = append(out, LapRecord{SessionID: sessionID, AgentID: m.lapAgent[k], Lap: l})
+			out = append(out, m.record(sessionID, k, l))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Lap.Lap < out[j].Lap.Lap })
@@ -294,6 +308,31 @@ func (m *Memory) CreateCar(_ context.Context, name string) (TeamCar, error) {
 	c := &TeamCar{ID: m.nextCar, Name: name, Names: []string{}}
 	m.cars[c.ID] = c
 	return *c, nil
+}
+
+func (m *Memory) SetLapExcluded(_ context.Context, sessionID string, carID int, vehicleName string, lap int, excluded *bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	k := lapKey{sessionID, carID, vehicleName, lap}
+	if _, ok := m.laps[k]; !ok {
+		return ErrNoLap
+	}
+	if excluded == nil {
+		delete(m.lapFlag, k)
+	} else {
+		m.lapFlag[k] = *excluded
+	}
+	return nil
+}
+
+func (m *Memory) SetSessionExcluded(_ context.Context, sessionID string, excluded bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.sessions[sessionID]; !ok {
+		return ErrNoSession
+	}
+	m.sessOut[sessionID] = excluded
+	return nil
 }
 
 func (m *Memory) DeleteCar(_ context.Context, id int64) error {
@@ -571,7 +610,7 @@ func (m *Memory) Sessions(_ context.Context) ([]SessionSummary, error) {
 	defer m.mu.Unlock()
 	by := map[string]*SessionSummary{}
 	for id, s := range m.sessions {
-		by[id] = &SessionSummary{SessionInfo: s}
+		by[id] = &SessionSummary{SessionInfo: s, Excluded: m.sessOut[id]}
 	}
 	get := func(id string) *SessionSummary {
 		if by[id] == nil {

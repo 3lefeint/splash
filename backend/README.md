@@ -183,6 +183,10 @@ Read and write endpoints have no authentication; only the agent socket uses the 
 | `GET /api/params`, `GET/PUT /api/params?track=&car=` | training parameters per track and car; the set matching the running session is used, defaults apply otherwise. `tyre_change` is 17 s (`DefaultTyreChange`) where no set exists or the value is 0, which counts as unset; every stop plan and rejoin calculation uses that resolved value. The lap time model settings `fit_min_laps` (3 to 20, default 5), `fit_slow_percent` (2 to 30, default 8), `fit_skip_fcy` and `fit_skip_wet` (default true) are part of the set: unset values read as the defaults, values out of range are answered with 400 |
 | `GET/PUT /api/stint-plan` | the stint plan of the team, a list of `{driver, duration}`, written as a whole |
 | `GET /api/overrides`, `PUT/DELETE /api/overrides/{key}` | manual values for `fuel` and `fuel_per_lap` of one agent (`?agent=` as for the state; writing without an agent is answered with 409); an override ends by itself once the live value matches it again |
+| `GET /api/sessions`, `GET /api/sessions/{id}/export?kind=` | the stored sessions with their counts, CSV export of laps, stops or conditions |
+| `GET /api/sessions/{id}/laps` | the laps of the driven cars of a session with their conditions, the agent that delivered them and whether they count for the models, for the lap table |
+| `PUT /api/laps/excluded` | leave a lap out of the models, take it in, or let it follow its session `{session_id, car_id, vehicle_name, lap, excluded: true\|false\|null}`; only the driver of the lap (a member whose agent delivered it) or an administrator |
+| `PUT /api/sessions/{id}/excluded` | leave a whole session out of the models, or take it in `{excluded}`; an administrator, or a member whose agents delivered all the laps of the session |
 
 ## Lap time model
 

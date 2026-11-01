@@ -1,7 +1,7 @@
 import type { Fit, FitSetting } from './types';
 
 /** The reasons a lap can be left out of the lap time model, in the order they are explained. */
-export const EXCLUDE_REASONS = ['too_slow', 'out_lap', 'in_lap', 'fcy', 'wet', 'missing_data'] as const;
+export const EXCLUDE_REASONS = ['manual', 'too_slow', 'out_lap', 'in_lap', 'fcy', 'wet', 'missing_data'] as const;
 
 /** The settings that would change which laps count, given the reasons present: a lower minimum always, and the setting behind each reason that one can change. */
 export function fitSettingsFor(fit: Pick<Fit, 'excluded'> | null | undefined): FitSetting[] {

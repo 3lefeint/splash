@@ -739,6 +739,73 @@ func runTeamSuite(t *testing.T, db DB) {
 		}
 	})
 
+	t.Run("laps and sessions can be left out of the models", func(t *testing.T) {
+		s := db.ForTeam(first.ID)
+		const sess = "excl"
+		s.TouchSession(ctx, SessionInfo{SessionID: sess, Track: "x", Car: "v", StartedAt: time.Now(), LastSeen: time.Now()})
+		s.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 1, LapTime: f(90)}, 0)
+		s.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 2, LapTime: f(91)}, 0)
+		flags := func() (a, b bool, fa, fb *bool) {
+			laps, _ := s.LapsOfCar(ctx, sess, 0, "v")
+			if len(laps) != 2 {
+				t.Fatalf("laps %+v", laps)
+			}
+			return laps[0].Excluded, laps[1].Excluded, laps[0].ExcludedFlag, laps[1].ExcludedFlag
+		}
+		if a, b, _, _ := flags(); a || b {
+			t.Fatal("laps start out taken in")
+		}
+		if err := s.SetSessionExcluded(ctx, sess, true); err != nil {
+			t.Fatal(err)
+		}
+		if a, b, fa, fb := flags(); !a || !b || fa != nil || fb != nil {
+			t.Fatalf("session left out: %v %v %v %v", a, b, fa, fb)
+		}
+		// a lap with a flag of its own keeps it when the session changes
+		no, yes := false, true
+		if err := s.SetLapExcluded(ctx, sess, 0, "v", 1, &no); err != nil {
+			t.Fatal(err)
+		}
+		if a, b, fa, _ := flags(); a || !b || fa == nil || *fa {
+			t.Fatalf("lap taken in inside a left-out session: %v %v %v", a, b, fa)
+		}
+		s.SetSessionExcluded(ctx, sess, false)
+		s.SetLapExcluded(ctx, sess, 0, "v", 2, &yes)
+		if a, b, _, fb := flags(); a || !b || fb == nil || !*fb {
+			t.Fatalf("lap left out in a taken-in session: %v %v %v", a, b, fb)
+		}
+		all, _ := s.Laps(ctx, sess)
+		if len(all) != 2 || all[1].Excluded != true {
+			t.Fatalf("Laps %+v", all)
+		}
+		// a flag can be removed again
+		s.SetLapExcluded(ctx, sess, 0, "v", 1, nil)
+		s.SetLapExcluded(ctx, sess, 0, "v", 2, nil)
+		if a, b, fa, fb := flags(); a || b || fa != nil || fb != nil {
+			t.Fatalf("flags removed: %v %v %v %v", a, b, fa, fb)
+		}
+		if err := s.SetLapExcluded(ctx, sess, 0, "v", 99, &yes); err != ErrNoLap {
+			t.Fatalf("unknown lap: %v", err)
+		}
+		if err := s.SetSessionExcluded(ctx, "no such session", true); err != ErrNoSession {
+			t.Fatalf("unknown session: %v", err)
+		}
+		s.SetSessionExcluded(ctx, sess, true)
+		list, _ := s.Sessions(ctx)
+		found := false
+		for _, x := range list {
+			if x.SessionID == sess {
+				found = true
+				if !x.Excluded {
+					t.Fatalf("summary %+v", x)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("session missing in the summary")
+		}
+	})
+
 	t.Run("an agent can be tied to a member and released again", func(t *testing.T) {
 		ag, err := db.CreateAgent(ctx, "owned", first.ID, HashToken("owned"))
 		if err != nil || ag.Email != "" {
@@ -799,6 +866,15 @@ func runTeamSuite(t *testing.T, db DB) {
 		own, err := st.LapsOfCar(ctx, sess, 0, "v")
 		if err != nil || len(own) != 3 || own[0].AgentID != one.ID {
 			t.Fatalf("laps of car %+v err=%v", own, err)
+		}
+		// every agent derives the laps of all cars, but only the driven car has fuel figures: that agent is the driver
+		st.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 4, LapTime: f(90)}, one.ID)
+		st.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 4, LapTime: f(90), FuelStart: f(60), FuelEnd: f(57)}, two.ID)
+		st.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 5, LapTime: f(90), FuelStart: f(60), FuelEnd: f(57)}, two.ID)
+		st.SaveLap(ctx, sess, wire.Lap{CarID: 0, VehicleName: "v", Lap: 5, LapTime: f(90)}, one.ID)
+		laps4, _ := st.LapsOfCar(ctx, sess, 0, "v")
+		if len(laps4) != 5 || laps4[3].AgentID != two.ID || laps4[4].AgentID != two.ID {
+			t.Fatalf("the agent with the fuel figures wins: %+v", laps4[3:])
 		}
 	})
 }
