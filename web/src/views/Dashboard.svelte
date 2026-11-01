@@ -20,6 +20,7 @@
   import { setupsUi } from '../lib/setups.svelte';
   import { currentEntry, nextEntry, until } from '../lib/plan';
   import { dashboardLayout } from '../lib/layout.svelte';
+  import { hasGear } from '../lib/tiles';
   import type { Key } from '../lib/i18n';
   import { t } from '../lib/settings.svelte';
   import { view } from '../lib/view.svelte';
@@ -71,6 +72,7 @@
   {#if dashboardLayout.edit}
     <div class="layoutbar no-print">
       <span class="muted hint">{t('layout.hint')}</span>
+      <label class="demo"><input type="checkbox" checked={view.demo} disabled={!view.hasData} onchange={() => (dashboardLayout.demo = !dashboardLayout.demo)} />{t('layout.demo')}</label>
       <button onclick={() => dashboardLayout.reset()}>{t('layout.reset')}</button>
       <button class="primary" onclick={() => (dashboardLayout.edit = false)}>{t('layout.done')}</button>
     </div>
@@ -81,7 +83,7 @@
   {/snippet}
 
   {#snippet gear(id: string)}
-    <TileGear {id}>
+    {#if hasGear(id)}<TileGear {id}>
       {#if id === 'map'}<MapControls />{/if}
       {#if id === 'setups'}
         <div class="gearrow">
@@ -93,7 +95,7 @@
         <label class="gearrow"><input type="checkbox" checked={setupsUi.arrange} onchange={() => (setupsUi.arrange = !setupsUi.arrange)} />{t('setups.arrange')}</label>
         <p class="muted small">{t('setups.arrangeHint')}</p>
       {/if}
-    </TileGear>
+    </TileGear>{/if}
   {/snippet}
 
   <GridLayout tools={gear} items={dashboardLayout.visible} edit={dashboardLayout.edit} onchange={(i) => dashboardLayout.set(i)} onremove={(id) => dashboardLayout.hide(id)} removeLabel={t('layout.hide')}>
@@ -265,10 +267,14 @@
   .wait { padding: 48px 8px; text-align: center; }
   .layoutbar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
   .hidden { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  .demo { display: flex; align-items: center; gap: 6px; }
   .layoutbar .hint { margin-right: auto; }
   @media (max-width: 639px) { .layoutbar { display: none; } }
   .mapbox { flex: 1; min-height: 160px; min-width: 0; display: flex; }
-  .big { font-size: calc(var(--ts, 1) * clamp(2rem, 16cqw, 4.6rem)); font-weight: 700; line-height: 1.05; }
+  :global(.tile.compact) .big { font-size: clamp(1.4rem, 9cqw, 2.4rem); }
+  :global(.tile.value) .big { font-size: clamp(1.6rem, 24cqw, 5rem); }
+  :global(.tile.compact) .name { font-size: 1.05em; }
+  .big { font-size: clamp(2rem, 16cqw, 4.6rem); font-weight: 700; line-height: 1.05; }
   .unit { font-size: 0.4em; margin-left: 4px; color: var(--muted); font-weight: 500; }
   .name { font-size: 1.3em; font-weight: 600; }
   .small { font-size: 0.8em; }

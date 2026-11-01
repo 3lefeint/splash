@@ -8,14 +8,14 @@ describe('tile options', () => {
   it('keeps only valid stored values for known tiles', () => {
     const o = cleanOptions(
       {
-        stops: { size: 'l', hide: ['saveDelta', 'nonsense', 3] },
+        stops: { mode: 'value', hide: ['saveDelta', 'nonsense', 3] },
         setups: { columns: 3, grid: [{ id: 'Fuel', x: 0, y: 0, w: 2, h: 1 }, { id: 'bad', x: -1, y: 0, w: 1, h: 1 }] },
-        map: { size: 'xl', columns: 9 },
-        gone: { size: 's' },
+        map: { mode: 'xl', columns: 9 },
+        gone: { mode: 'compact' },
       },
       known,
     );
-    expect(o.stops).toEqual({ size: 'l', hide: ['saveDelta'] });
+    expect(o.stops).toEqual({ mode: 'value', hide: ['saveDelta'] });
     expect(o.setups).toEqual({ columns: 3, grid: [{ id: 'Fuel', x: 0, y: 0, w: 2, h: 1 }] });
     expect(o.map).toEqual({});
     expect(o.gone).toBeUndefined();
@@ -34,8 +34,8 @@ describe('dashboard layout options', () => {
     dashboardLayout.toggleLine('stops', 'saveDelta');
     expect(dashboardLayout.shows('stops', 'saveDelta')).toBe(false);
     expect(dashboardLayout.shows('stops', 'lapsLeft')).toBe(true);
-    dashboardLayout.setOption('stops', { size: 's' });
-    expect(dashboardLayout.optionsOf('stops')).toEqual({ hide: ['saveDelta'], size: 's' });
+    dashboardLayout.setOption('stops', { mode: 'compact' });
+    expect(dashboardLayout.optionsOf('stops')).toEqual({ hide: ['saveDelta'], mode: 'compact' });
     dashboardLayout.toggleLine('stops', 'saveDelta');
     expect(dashboardLayout.shows('stops', 'saveDelta')).toBe(true);
     dashboardLayout.reset();

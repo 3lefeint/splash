@@ -1,10 +1,11 @@
 import type { Item } from './grid';
 
-export type TileSize = 's' | 'm' | 'l';
+/** How a tile lays out its content: as it is, in one line, or just the value. */
+export type TileMode = 'normal' | 'compact' | 'value';
 
 /** What a tile of the dashboard remembers besides its place: stored with the layout in the browser. */
 export interface TileOptions {
-  size?: TileSize;
+  mode?: TileMode;
   /** Lines switched off. */
   hide?: string[];
   /** Columns of the grid inside the tile (pit set-ups). */
@@ -13,8 +14,7 @@ export interface TileOptions {
   grid?: Item[];
 }
 
-export const SIZE_SCALE: Record<TileSize, number> = { s: 0.8, m: 1, l: 1.25 };
-export const SIZES: TileSize[] = ['s', 'm', 'l'];
+export const MODES: TileMode[] = ['normal', 'compact', 'value'];
 
 /** The lines of a tile that can be switched off. */
 export const TILE_LINES: Record<string, string[]> = {
@@ -25,6 +25,9 @@ export const TILE_LINES: Record<string, string[]> = {
   opponents: ['trend'],
   plan: ['next', 'deviation'],
 };
+
+/** Tiles with a gear: those with lines to switch off (they also have the modes) and those with controls of their own. */
+export const hasGear = (id: string): boolean => id in TILE_LINES || id === 'map' || id === 'setups';
 
 export const MAX_COLUMNS = 4;
 
@@ -49,7 +52,7 @@ export function cleanOptions(raw: unknown, known: Set<string>): Record<string, T
     if (!known.has(id) || !v || typeof v !== 'object') continue;
     const o = v as Record<string, unknown>;
     const clean: TileOptions = {};
-    if (o.size === 's' || o.size === 'm' || o.size === 'l') clean.size = o.size;
+    if (o.mode === 'compact' || o.mode === 'value') clean.mode = o.mode;
     if (Array.isArray(o.hide)) {
       const lines = TILE_LINES[id] ?? [];
       const hide = o.hide.filter((l): l is string => typeof l === 'string' && lines.includes(l));

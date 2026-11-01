@@ -9,12 +9,17 @@ const DEMO_MAP = demoMap();
 
 /**
  * What the tiles of the dashboard show. Normally the live state; while the dashboard is being arranged and no agent has
- * sent data, an invented example, so the tiles can be laid out without the game running. The example is never used
+ * sent data (or the example is asked for), an invented example, so the tiles can be laid out without the game running. The example is never used
  * anywhere else: the announcements and the title in the header read the live state itself.
  */
 class View {
+  /** An agent sends data the tiles can show. */
+  get hasData(): boolean {
+    return !!(live.state?.ready && live.state.car);
+  }
+
   get demo(): boolean {
-    return router.route === 'dashboard' && dashboardLayout.edit && !(live.state?.ready && live.state.car);
+    return router.route === 'dashboard' && dashboardLayout.edit && (dashboardLayout.demo || !this.hasData);
   }
 
   get state(): State | null {
