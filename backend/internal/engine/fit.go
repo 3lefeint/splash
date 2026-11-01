@@ -46,9 +46,13 @@ type ExcludedLap struct {
 // Fit is the lap time model estimated from the clean laps of the car so far: the lap gets slower by FuelEffect
 // seconds per litre in the tank and by DegPerLap seconds per lap of tyre age.
 type Fit struct {
-	Laps       int      `json:"laps"`
-	FuelEffect *float64 `json:"fuel_effect"`
-	DegPerLap  *float64 `json:"deg_per_lap"`
+	Laps int `json:"laps"`
+	// HistoryLaps is how many of Laps come from earlier sessions on this track with this car, and Scope whose laps
+	// they are: "driver" for the driver of the car now, "team" when that driver had too few of their own.
+	HistoryLaps int      `json:"history_laps"`
+	Scope       string   `json:"scope,omitempty"`
+	FuelEffect  *float64 `json:"fuel_effect"`
+	DegPerLap   *float64 `json:"deg_per_lap"`
 	// Base is the fitted lap time with an empty tank on new tyres, R2 the share of the lap time variation explained.
 	Base float64 `json:"base"`
 	R2   float64 `json:"r2"`
@@ -61,44 +65,64 @@ type Fit struct {
 	Excluded []ExcludedLap `json:"excluded"`
 }
 
+// fitGroup is the laps of one session for the fit. Lap numbers and tyre sets only mean something inside a session, so
+// the tyre age of a lap is worked out per group. History groups come from earlier sessions.
+type fitGroup struct {
+	laps    []store.LapRecord
+	bounds  []int
+	wet     func(lap int) bool
+	history bool
+}
+
 // fitModel fits lap time = base + fuelEffect * fuel + degPerLap * tyreAge to the clean laps of one car.
 // bounds are the laps after which a new tyre set started (see setBoundaries). wet tells the laps driven on a wet
 // track; it is used only with opt.SkipWet.
 func fitModel(laps []store.LapRecord, bounds []int, wet func(lap int) bool, opt FitOptions) *Fit {
+	return fitGroups([]fitGroup{{laps: laps, bounds: bounds, wet: wet}}, opt)
+}
+
+// fitGroups is fitModel over the laps of several sessions. Only the laps of the running session (not history) are
+// listed as excluded; the laps of earlier sessions just do or do not count.
+func fitGroups(groups []fitGroup, opt FitOptions) *Fit {
 	type row struct {
 		lap          int
 		fuel, age, t float64
+		history      bool
 	}
 	var rows []row
 	excluded := []ExcludedLap{}
-	for _, r := range laps {
-		l := r.Lap
-		reason := ""
-		switch {
-		case r.Excluded:
-			reason = excludeManual
-		case l.LapTime == nil || l.FuelStart == nil || l.FuelEnd == nil:
-			reason = excludeMissing
-		case l.InLap:
-			reason = excludeInLap
-		case l.OutLap:
-			reason = excludeOutLap
-		case opt.SkipFCY && l.FCY:
-			reason = excludeFCY
-		case opt.SkipWet && wet != nil && wet(l.Lap):
-			reason = excludeWet
-		}
-		if reason != "" {
-			excluded = append(excluded, ExcludedLap{l.Lap, reason})
-			continue
-		}
-		start := 0
-		for _, b := range bounds {
-			if b < l.Lap && b > start {
-				start = b
+	for _, g := range groups {
+		for _, r := range g.laps {
+			l := r.Lap
+			reason := ""
+			switch {
+			case r.Excluded:
+				reason = excludeManual
+			case l.LapTime == nil || l.FuelStart == nil || l.FuelEnd == nil:
+				reason = excludeMissing
+			case l.InLap:
+				reason = excludeInLap
+			case l.OutLap:
+				reason = excludeOutLap
+			case opt.SkipFCY && l.FCY:
+				reason = excludeFCY
+			case opt.SkipWet && g.wet != nil && g.wet(l.Lap):
+				reason = excludeWet
 			}
+			if reason != "" {
+				if !g.history {
+					excluded = append(excluded, ExcludedLap{l.Lap, reason})
+				}
+				continue
+			}
+			start := 0
+			for _, b := range g.bounds {
+				if b < l.Lap && b > start {
+					start = b
+				}
+			}
+			rows = append(rows, row{l.Lap, (*l.FuelStart + *l.FuelEnd) / 2, float64(l.Lap - start), *l.LapTime, g.history})
 		}
-		rows = append(rows, row{l.Lap, (*l.FuelStart + *l.FuelEnd) / 2, float64(l.Lap - start), *l.LapTime})
 	}
 	if len(rows) >= 3 {
 		ts := make([]float64, len(rows))
@@ -110,13 +134,18 @@ func fitModel(laps []store.LapRecord, bounds []int, wet func(lap int) bool, opt 
 		for _, r := range rows {
 			if r.t <= med*(1+opt.SlowPercent/100) {
 				kept = append(kept, r)
-			} else {
+			} else if !r.history {
 				excluded = append(excluded, ExcludedLap{r.lap, excludeSlow})
 			}
 		}
 		rows = kept
 	}
 	out := &Fit{Laps: len(rows), MinLaps: opt.MinLaps, Excluded: []ExcludedLap{}}
+	for _, r := range rows {
+		if r.history {
+			out.HistoryLaps++
+		}
+	}
 	if len(rows) < opt.MinLaps {
 		out.Reason = "few_laps"
 		sort.Slice(excluded, func(i, j int) bool { return excluded[i].Lap < excluded[j].Lap })

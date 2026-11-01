@@ -70,6 +70,9 @@
     </li>
   </ul>
   <div class="muted small">{t('model.basis', { n: fit.laps, r2: fixed(fit.r2 * 100, 0) })}</div>
+  {#if fit.history_laps && fit.scope}
+    <div class="muted small">{t(fit.scope === 'team' ? 'model.history.team' : 'model.history.driver', { n: fit.history_laps })}</div>
+  {/if}
   {#if fit.r2 < WEAK}<p class="weak">{t('model.weak')}</p>{/if}
   <button class="primary" disabled={!canApply || busy} onclick={apply}>{t('model.apply')}</button>
   {#if error}<p class="err">{error}</p>{/if}
