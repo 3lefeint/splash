@@ -178,6 +178,96 @@ func runSuite(t *testing.T, s Store) {
 		s.DeleteOverride(ctx, 2, OverrideFuelPerLap)
 	})
 
+	t.Run("team cars: parameters and set-ups follow the car, not the livery", func(t *testing.T) {
+		const track = "cars-track"
+		// parameters stored under a livery name before there was a team car
+		s.SetParams(ctx, Params{Track: track + "-old", Car: "BMW #3 old", TyreChange: 11})
+		s.SetParams(ctx, Params{Track: track + "-old", Car: "BMW", TyreChange: 12})
+
+		bmw, err := s.CreateCar(ctx, "BMW")
+		if err != nil || bmw.ID == 0 || len(bmw.Names) != 0 {
+			t.Fatalf("create %+v err=%v", bmw, err)
+		}
+		if _, err := s.CreateCar(ctx, "BMW"); err != ErrExists {
+			t.Fatalf("duplicate: %v", err)
+		}
+		porsche, _ := s.CreateCar(ctx, "Porsche")
+		for _, n := range []string{"BMW #2 blue", "BMW #1 red"} {
+			if err := s.MapCarName(ctx, bmw.ID, n); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := s.MapCarName(ctx, 987654, "x"); err != ErrNoCar {
+			t.Fatalf("unknown car: %v", err)
+		}
+		cars, _ := s.Cars(ctx)
+		if len(cars) != 2 || cars[0].Name != "BMW" || !reflect.DeepEqual(cars[0].Names, []string{"BMW #1 red", "BMW #2 blue"}) ||
+			cars[1].Name != "Porsche" || len(cars[1].Names) != 0 {
+			t.Fatalf("cars %+v", cars)
+		}
+		if got, _ := s.CanonicalCar(ctx, "BMW #1 red"); got != "BMW" {
+			t.Fatalf("canonical %q", got)
+		}
+		if got, _ := s.CanonicalCar(ctx, "Ford #9"); got != "Ford #9" {
+			t.Fatalf("a name without a team car stays: %q", got)
+		}
+
+		// written through one livery, found through another and through the team car
+		s.SetParams(ctx, Params{Track: track, Car: "BMW #1 red", TyreChange: 21})
+		for _, car := range []string{"BMW #2 blue", "BMW"} {
+			got, ok, _ := s.GetParams(ctx, track, car)
+			if !ok || got.TyreChange != 21 || got.Car != "BMW" {
+				t.Fatalf("params through %q: %+v ok=%v", car, got, ok)
+			}
+		}
+		// the set of the old livery name is still found, but the team car's own set wins
+		if got, ok, _ := s.GetParams(ctx, track+"-old", "BMW #1 red"); !ok || got.TyreChange != 12 {
+			t.Fatalf("team car set wins: %+v ok=%v", got, ok)
+		}
+		s.MapCarName(ctx, bmw.ID, "BMW #3 old")
+		if got, ok, _ := s.GetParams(ctx, track+"-old", "BMW #3 old"); !ok || got.TyreChange != 12 {
+			t.Fatalf("after mapping: %+v ok=%v", got, ok)
+		}
+		s.SetParams(ctx, Params{Track: track + "-legacy", Car: "Legacy livery", TyreChange: 13})
+		cl, _ := s.CreateCar(ctx, "Legacy car")
+		s.MapCarName(ctx, cl.ID, "Legacy livery")
+		if got, ok, _ := s.GetParams(ctx, track+"-legacy", "Legacy livery"); !ok || got.TyreChange != 13 {
+			t.Fatalf("a set stored under the livery name is still found: %+v ok=%v", got, ok)
+		}
+
+		// pit set-ups the same way
+		s.SavePitSetup(ctx, PitSetup{Car: "BMW #1 red", Name: "Max", Steps: []wire.Step{{Category: "FUEL:", Choice: "max"}}})
+		got, _ := s.PitSetups(ctx, "BMW #2 blue")
+		if len(got) != 1 || got[0].Name != "Max" || got[0].Car != "BMW" {
+			t.Fatalf("set-ups %+v", got)
+		}
+		s.DeletePitSetup(ctx, "BMW #2 blue", "Max")
+		if got, _ := s.PitSetups(ctx, "BMW"); len(got) != 0 {
+			t.Fatalf("after delete %+v", got)
+		}
+
+		// a name moves to another car; unmapping and deleting a car release it
+		s.MapCarName(ctx, porsche.ID, "BMW #2 blue")
+		if got, _ := s.CanonicalCar(ctx, "BMW #2 blue"); got != "Porsche" {
+			t.Fatalf("moved name: %q", got)
+		}
+		s.UnmapCarName(ctx, "BMW #2 blue")
+		if got, _ := s.CanonicalCar(ctx, "BMW #2 blue"); got != "BMW #2 blue" {
+			t.Fatalf("unmapped name: %q", got)
+		}
+		if err := s.DeleteCar(ctx, bmw.ID); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.CanonicalCar(ctx, "BMW #1 red"); got != "BMW #1 red" {
+			t.Fatalf("name of a deleted car: %q", got)
+		}
+		if err := s.DeleteCar(ctx, bmw.ID); err != ErrNoCar {
+			t.Fatalf("delete twice: %v", err)
+		}
+		s.DeleteCar(ctx, porsche.ID)
+		s.DeleteCar(ctx, cl.ID)
+	})
+
 	t.Run("track map round trip", func(t *testing.T) {
 		if _, ok, _ := s.GetTrackMap(ctx, "ring"); ok {
 			t.Fatal("unexpected map")
@@ -599,6 +689,53 @@ func runTeamSuite(t *testing.T, db DB) {
 		}
 		if !found {
 			t.Fatalf("agents %+v", list)
+		}
+	})
+
+	t.Run("team cars are per team", func(t *testing.T) {
+		ca, err := a.CreateCar(ctx, "Same name")
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.MapCarName(ctx, ca.ID, "livery")
+		if got, _ := b.CanonicalCar(ctx, "livery"); got != "livery" {
+			t.Fatalf("team b sees the mapping of team a: %q", got)
+		}
+		// team b has no car yet, so it cannot put a name on the car of team a or delete it
+		if err := b.MapCarName(ctx, ca.ID, "other livery"); err != ErrNoCar {
+			t.Fatalf("map on the car of another team: %v", err)
+		}
+		if err := b.DeleteCar(ctx, ca.ID); err != ErrNoCar {
+			t.Fatalf("delete the car of another team: %v", err)
+		}
+		if _, err := b.CreateCar(ctx, "Same name"); err != nil {
+			t.Fatalf("another team may use the name: %v", err)
+		}
+
+		// names seen in sessions that belong to no team car
+		now := time.Now()
+		a.TouchSession(ctx, SessionInfo{SessionID: "cars-s1", Track: "x", Car: "livery", StartedAt: now, LastSeen: now})
+		a.TouchSession(ctx, SessionInfo{SessionID: "cars-s2", Track: "x", Car: "Ford #9", StartedAt: now, LastSeen: now})
+		a.TouchSession(ctx, SessionInfo{SessionID: "cars-s3", Track: "x", Car: "Ford #9", StartedAt: now, LastSeen: now})
+		un, _ := a.UnmappedCarNames(ctx)
+		has := func(list []string, n string) bool {
+			for _, x := range list {
+				if x == n {
+					return true
+				}
+			}
+			return false
+		}
+		if !has(un, "Ford #9") || has(un, "livery") {
+			t.Fatalf("unmapped %v: want the name without a team car once, not the mapped one", un)
+		}
+		for i := 1; i < len(un); i++ {
+			if un[i] == un[i-1] {
+				t.Fatalf("unmapped %v lists a name twice", un)
+			}
+		}
+		if unb, _ := b.UnmappedCarNames(ctx); has(unb, "Ford #9") {
+			t.Fatalf("team b sees the sessions of team a: %v", unb)
 		}
 	})
 

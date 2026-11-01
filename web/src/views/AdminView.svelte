@@ -1,17 +1,22 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import {
-    adminAgents, adminCreateAgent, adminCreateTeam, adminDeleteMember, adminMembers, adminRevokeAgent, adminSetAgentEmail,
+    adminAgents, adminCars, adminCreateAgent, adminCreateCar, adminCreateTeam, adminDeleteCar, adminDeleteMember,
+    adminMapCarName, adminUnmapCarName, adminMembers, adminRevokeAgent, adminSetAgentEmail,
     adminSetMember, adminTeams,
   } from '../lib/api';
   import { identity } from '../lib/me.svelte';
   import { t } from '../lib/settings.svelte';
-  import type { AdminAgent, AdminMember, AdminTeam, CreatedAgent } from '../lib/types';
+  import type { AdminAgent, AdminMember, AdminTeam, CreatedAgent, TeamCars } from '../lib/types';
 
   let teams = $state<AdminTeam[]>([]);
   let members = $state<AdminMember[]>([]);
   let agents = $state<AdminAgent[]>([]);
   let error = $state('');
+  let carTeam = $state(0);
+  let teamCars = $state<TeamCars>({ cars: [], unmapped: [] });
+  let newCar = $state('');
+  let nameFor = $state<Record<number, string>>({});
 
   let newTeam = $state('');
   let memberEmail = $state('');
@@ -43,6 +48,8 @@
   async function load(): Promise<void> {
     [teams, members, agents] = await Promise.all([adminTeams(), adminMembers(), adminAgents()]);
     if (!teams.some((x) => x.id === memberTeam)) memberTeam = teams[0]?.id ?? 0;
+    if (!teams.some((x) => x.id === carTeam)) carTeam = teams[0]?.id ?? 0;
+    if (carTeam) teamCars = await adminCars(carTeam);
   }
 
   // The identity arrives after the page may have been opened, so load as soon as it says administrator.
@@ -68,6 +75,19 @@
     run(async () => {
       created = await adminCreateAgent((agentNames[m.email] ?? '').trim(), m.team_id, m.email);
       agentNames[m.email] = '';
+    });
+  const addCar = () =>
+    run(async () => {
+      await adminCreateCar(carTeam, newCar.trim());
+      newCar = '';
+    });
+  const removeCar = (c: { id: number; name: string }) => {
+    if (confirm(t('admin.confirmDeleteCar', { name: c.name }))) void run(() => adminDeleteCar(carTeam, c.id));
+  };
+  const assignName = (id: number) =>
+    run(async () => {
+      await adminMapCarName(carTeam, id, (nameFor[id] ?? '').trim());
+      nameFor[id] = '';
     });
   const release = (a: AdminAgent) => run(() => adminSetAgentEmail(a.id, ''));
   const assign = (a: AdminAgent) => run(async () => {
@@ -186,6 +206,47 @@
       </div>
     </section>
   {/if}
+
+  <section>
+    <h2>{t('admin.cars')}</h2>
+    <p class="muted">{t('admin.carsHelp')}</p>
+    <div class="row">
+      <select bind:value={carTeam} onchange={() => void run(async () => {})} aria-label={t('admin.team')}>
+        {#each teams as x (x.id)}<option value={x.id}>{x.name}</option>{/each}
+      </select>
+    </div>
+    {#if teamCars.unmapped.length > 0}
+      <p class="muted">{t('admin.unmappedNames', { names: teamCars.unmapped.join(', ') })}</p>
+    {/if}
+    <datalist id="unmapped-names">
+      {#each teamCars.unmapped as n (n)}<option value={n}></option>{/each}
+    </datalist>
+    {#each teamCars.cars as c (c.id)}
+      <div class="car">
+        <div class="row">
+          <strong>{c.name}</strong>
+          <button class="danger" onclick={() => removeCar(c)}>{t('admin.deleteCar')}</button>
+        </div>
+        <ul class="names">
+          {#each c.names as n (n)}
+            <li>{n} <button class="x" aria-label={t('admin.remove')} onclick={() => void run(() => adminUnmapCarName(carTeam, n))}>×</button></li>
+          {:else}
+            <li class="muted">{t('admin.noNames')}</li>
+          {/each}
+        </ul>
+        <form class="row" onsubmit={(e) => { e.preventDefault(); void assignName(c.id); }}>
+          <input list="unmapped-names" bind:value={nameFor[c.id]} placeholder={t('admin.vehicleName')} maxlength="120" required />
+          <button type="submit">{t('admin.assignName')}</button>
+        </form>
+      </div>
+    {:else}
+      <p class="muted">{t('admin.noCars')}</p>
+    {/each}
+    <form class="row" onsubmit={(e) => { e.preventDefault(); void addCar(); }}>
+      <input bind:value={newCar} placeholder={t('admin.carName')} maxlength="120" required />
+      <button class="primary" type="submit">{t('admin.addCar')}</button>
+    </form>
+  </section>
 {/if}
 
 <style>
@@ -201,6 +262,10 @@
   tr.agent td { border-top: none; padding-top: 2px; font-weight: 400; }
   tr.gone { opacity: 0.6; }
   .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .car { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+  .names { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 8px 0; padding: 0; }
+  .names li { padding: 2px 8px; border-radius: 999px; background: var(--surface-2); }
+  .x { min-height: 0; padding: 0 4px; border: none; background: transparent; color: var(--muted); }
   .token { border: 1px solid var(--accent); border-radius: 12px; padding: 12px 16px; background: var(--surface-2); }
   .token code { display: block; margin: 8px 0; padding: 8px; overflow-wrap: anywhere; user-select: all; background: var(--bg); border-radius: 8px; }
   .err { color: var(--bad, #e5534b); }

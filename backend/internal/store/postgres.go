@@ -194,15 +194,28 @@ func (p *Postgres) LapsOfCar(ctx context.Context, sessionID string, carID int, v
 }
 
 func (p *Postgres) GetParams(ctx context.Context, track, car string) (Params, bool, error) {
-	rows, err := p.pool.Query(ctx, paramsSelect+` WHERE team_id = $3 AND track = $1 AND car = $2`, track, car, p.team)
+	canon, err := p.CanonicalCar(ctx, car)
 	if err != nil {
 		return Params{}, false, err
 	}
-	list, err := scanParams(rows)
-	if err != nil || len(list) == 0 {
-		return Params{}, false, err
+	// A set stored before the car had a team car is still under the vehicle name.
+	for _, name := range []string{canon, car} {
+		rows, err := p.pool.Query(ctx, paramsSelect+` WHERE team_id = $3 AND track = $1 AND car = $2`, track, name, p.team)
+		if err != nil {
+			return Params{}, false, err
+		}
+		list, err := scanParams(rows)
+		if err != nil {
+			return Params{}, false, err
+		}
+		if len(list) > 0 {
+			return list[0], true, nil
+		}
+		if canon == car {
+			break
+		}
 	}
-	return list[0], true, nil
+	return Params{}, false, nil
 }
 
 func (p *Postgres) ListParams(ctx context.Context) ([]Params, error) {
@@ -215,7 +228,12 @@ func (p *Postgres) ListParams(ctx context.Context) ([]Params, error) {
 
 func (p *Postgres) SetParams(ctx context.Context, v Params) error {
 	v = v.WithDefaults()
-	_, err := p.pool.Exec(ctx, `
+	canon, err := p.CanonicalCar(ctx, v.Car)
+	if err != nil {
+		return err
+	}
+	v.Car = canon
+	_, err = p.pool.Exec(ctx, `
 INSERT INTO params (track, car, pit_through_green, pit_through_fcy, refuel_rate, tyre_change, driver_swap,
                     fuel_effect, deg_per_lap, save_cost, reserve,
                     fit_min_laps, fit_slow_percent, fit_skip_fcy, fit_skip_wet, team_id)
@@ -469,18 +487,29 @@ WHERE id = (SELECT id FROM stops
 }
 
 func (p *Postgres) PitSetups(ctx context.Context, car string) ([]PitSetup, error) {
-	rows, err := p.pool.Query(ctx, `SELECT car, name, steps FROM pit_setups WHERE team_id = $2 AND car = $1 ORDER BY seq`, car, p.team)
+	canon, err := p.CanonicalCar(ctx, car)
+	if err != nil {
+		return nil, err
+	}
+	// Set-ups stored before the car had a team car are still under the vehicle name; a set-up of the team car wins.
+	rows, err := p.pool.Query(ctx, `SELECT car, name, steps FROM pit_setups WHERE team_id = $3 AND car IN ($1, $2)
+ORDER BY (car = $1) DESC, seq`, canon, car, p.team)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []PitSetup{}
+	seen := map[string]bool{}
 	for rows.Next() {
 		var s PitSetup
 		var steps []byte
 		if err := rows.Scan(&s.Car, &s.Name, &steps); err != nil {
 			return nil, err
 		}
+		if seen[s.Name] {
+			continue
+		}
+		seen[s.Name] = true
 		if err := json.Unmarshal(steps, &s.Steps); err != nil {
 			return nil, err
 		}
@@ -494,6 +523,9 @@ func (p *Postgres) SavePitSetup(ctx context.Context, s PitSetup) error {
 	if err != nil {
 		return err
 	}
+	if s.Car, err = p.CanonicalCar(ctx, s.Car); err != nil {
+		return err
+	}
 	_, err = p.pool.Exec(ctx, `
 INSERT INTO pit_setups (car, name, steps, team_id) VALUES ($1,$2,$3,$4)
 ON CONFLICT (team_id, car, name) DO UPDATE SET steps = EXCLUDED.steps`, s.Car, s.Name, steps, p.team)
@@ -501,8 +533,98 @@ ON CONFLICT (team_id, car, name) DO UPDATE SET steps = EXCLUDED.steps`, s.Car, s
 }
 
 func (p *Postgres) DeletePitSetup(ctx context.Context, car, name string) error {
-	_, err := p.pool.Exec(ctx, `DELETE FROM pit_setups WHERE team_id = $3 AND car = $1 AND name = $2`, car, name, p.team)
+	canon, err := p.CanonicalCar(ctx, car)
+	if err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `DELETE FROM pit_setups WHERE team_id = $3 AND car IN ($1, $4) AND name = $2`, canon, name, p.team, car)
 	return err
+}
+
+func (p *Postgres) CanonicalCar(ctx context.Context, vehicleName string) (string, error) {
+	var name string
+	err := p.pool.QueryRow(ctx, `
+SELECT c.name FROM team_car_names n JOIN team_cars c ON c.id = n.car_id
+WHERE n.team_id = $1 AND n.vehicle_name = $2`, p.team, vehicleName).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return vehicleName, nil
+	}
+	return name, err
+}
+
+func (p *Postgres) Cars(ctx context.Context) ([]TeamCar, error) {
+	rows, err := p.pool.Query(ctx, `
+SELECT c.id, c.name, COALESCE(array_agg(n.vehicle_name ORDER BY n.vehicle_name) FILTER (WHERE n.vehicle_name IS NOT NULL), '{}')
+FROM team_cars c LEFT JOIN team_car_names n ON n.car_id = c.id
+WHERE c.team_id = $1 GROUP BY c.id ORDER BY c.name`, p.team)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []TeamCar{}
+	for rows.Next() {
+		var c TeamCar
+		if err := rows.Scan(&c.ID, &c.Name, &c.Names); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) CreateCar(ctx context.Context, name string) (TeamCar, error) {
+	c := TeamCar{Name: name, Names: []string{}}
+	err := p.pool.QueryRow(ctx, `INSERT INTO team_cars (team_id, name) VALUES ($1,$2) RETURNING id`, p.team, name).Scan(&c.ID)
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == uniqueViolation {
+		return TeamCar{}, ErrExists
+	}
+	return c, err
+}
+
+func (p *Postgres) DeleteCar(ctx context.Context, id int64) error {
+	tag, err := p.pool.Exec(ctx, `DELETE FROM team_cars WHERE team_id = $1 AND id = $2`, p.team, id)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNoCar
+	}
+	return err
+}
+
+func (p *Postgres) MapCarName(ctx context.Context, id int64, vehicleName string) error {
+	// The car is looked up with the team, so a name cannot be put on the car of another team.
+	tag, err := p.pool.Exec(ctx, `
+INSERT INTO team_car_names (team_id, vehicle_name, car_id)
+SELECT $1, $3, c.id FROM team_cars c WHERE c.team_id = $1 AND c.id = $2
+ON CONFLICT (team_id, vehicle_name) DO UPDATE SET car_id = EXCLUDED.car_id`, p.team, id, vehicleName)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNoCar
+	}
+	return err
+}
+
+func (p *Postgres) UnmapCarName(ctx context.Context, vehicleName string) error {
+	_, err := p.pool.Exec(ctx, `DELETE FROM team_car_names WHERE team_id = $1 AND vehicle_name = $2`, p.team, vehicleName)
+	return err
+}
+
+func (p *Postgres) UnmappedCarNames(ctx context.Context) ([]string, error) {
+	rows, err := p.pool.Query(ctx, `
+SELECT DISTINCT car FROM sessions
+WHERE team_id = $1 AND car <> '' AND car NOT IN (SELECT vehicle_name FROM team_car_names WHERE team_id = $1)
+ORDER BY car`, p.team)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
 }
 
 func (p *Postgres) TouchSession(ctx context.Context, s SessionInfo) error {

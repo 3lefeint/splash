@@ -90,6 +90,9 @@ key). Without the two variables authentication is off: a warning is logged, ever
 | `GET/POST /api/admin/agents` | list agents, create one `{name, team_id, email}`; the reply carries the token, shown only once. `email` is optional and must be a member of the team |
 | `PUT /api/admin/agents/{id}` | tie an agent to a member of its team `{email}`, or release it with an empty address |
 | `POST /api/admin/agents/{id}/revoke` | make an agent token stop working |
+| `GET/POST /api/admin/cars` | the team cars of a team (`?team_id=`) with their vehicle names and the names seen in sessions that belong to none; add a car `{team_id, name}` |
+| `DELETE /api/admin/cars/{id}?team_id=` | delete a team car; its parameters and set-ups stay stored under its name |
+| `PUT /api/admin/cars/{id}/names`, `DELETE /api/admin/car-names?team_id=&name=` | assign a vehicle name of the game to a team car `{team_id, vehicle_name}` (it moves if it belonged to another car), or take it away |
 
 The first administrator is named in `SPLASH_ADMIN_EMAILS`; the addresses are applied at every start. An administrator
 cannot remove or demote themselves.

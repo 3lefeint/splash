@@ -1,4 +1,4 @@
-import type { AdminAgent, AgentInfo, AdminMember, AdminTeam, CreatedAgent, Me, Corner, MapProgress, TrackInfo, SessionSummary, OverrideKey, Params, PitSetup, PlanRow, Step, TrackMap } from './types';
+import type { AdminAgent, AgentInfo, TeamCar, TeamCars, AdminMember, AdminTeam, CreatedAgent, Me, Corner, MapProgress, TrackInfo, SessionSummary, OverrideKey, Params, PitSetup, PlanRow, Step, TrackMap } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -121,3 +121,13 @@ export const adminCreateAgent = (name: string, teamId: number, email: string) =>
 export const adminSetAgentEmail = (id: number, email: string) =>
   request<AdminAgent>('PUT', `/api/admin/agents/${id}`, { email });
 export const adminRevokeAgent = (id: number) => request<void>('POST', `/api/admin/agents/${id}/revoke`);
+
+export const adminCars = (teamId: number) => request<TeamCars>('GET', `/api/admin/cars?team_id=${teamId}`);
+export const adminCreateCar = (teamId: number, name: string) =>
+  request<TeamCar>('POST', '/api/admin/cars', { team_id: teamId, name });
+export const adminDeleteCar = (teamId: number, id: number) =>
+  request<void>('DELETE', `/api/admin/cars/${id}?team_id=${teamId}`);
+export const adminMapCarName = (teamId: number, id: number, vehicleName: string) =>
+  request<void>('PUT', `/api/admin/cars/${id}/names`, { team_id: teamId, vehicle_name: vehicleName });
+export const adminUnmapCarName = (teamId: number, vehicleName: string) =>
+  request<void>('DELETE', `/api/admin/car-names?team_id=${teamId}&name=${encodeURIComponent(vehicleName)}`);

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  adminCreateAgent, adminDeleteMember, adminRevokeAgent, adminSetAgentEmail, adminSetMember, ApiError, clearOverride,
+  adminCars, adminCreateAgent, adminDeleteMember, adminMapCarName, adminUnmapCarName, adminRevokeAgent, adminSetAgentEmail, adminSetMember, ApiError, clearOverride,
   getMe, getParams, pitRequest, putPlan, setOverride, useAgent,
 } from './api';
 
@@ -51,6 +51,20 @@ describe('api', () => {
     expect((await adminCreateAgent('pc', 1, 'a@example.com')).token).toBe('tok');
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
     expect([url, init.method, init.body]).toEqual(['/api/admin/agents', 'POST', '{"name":"pc","team_id":1,"email":"a@example.com"}']);
+  });
+  it('addresses team cars by team and escapes vehicle names', async () => {
+    const f = respond(200, { cars: [], unmapped: [] });
+    vi.stubGlobal('fetch', f);
+    await adminCars(2);
+    await adminMapCarName(2, 5, 'BMW #1');
+    await adminUnmapCarName(2, 'BMW #1 & red');
+    const calls = f.mock.calls.map((c) => c as unknown as [string, RequestInit]);
+    expect(calls.map(([u, i]) => [i.method, u])).toEqual([
+      ['GET', '/api/admin/cars?team_id=2'],
+      ['PUT', '/api/admin/cars/5/names'],
+      ['DELETE', '/api/admin/car-names?team_id=2&name=BMW%20%231%20%26%20red'],
+    ]);
+    expect(calls[1][1].body).toBe('{"team_id":2,"vehicle_name":"BMW #1"}');
   });
   it('ties an agent to a member and releases it with an empty address', async () => {
     const f = respond(200, { id: 3, name: 'pc', team_id: 1, email: '', revoked: false, last_seen: null });
