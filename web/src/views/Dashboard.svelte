@@ -130,19 +130,19 @@
         <Tile id="stops" {gear} title={t('dash.stops')}>
           {#if race}
             <div class="big num">{race.stops_remaining}</div>
-            {#if dashboardLayout.shows('stops', 'lapsLeft')}<div class="muted">{t('dash.lapsLeft', { n: race.laps_left })}</div>{/if}
+            {#if dashboardLayout.shows('stops', 'lapsLeft')}<div class="muted s-laps">{t('dash.lapsLeft', { n: race.laps_left })}</div>{/if}
             {#if dashboardLayout.shows('stops', 'saveTarget')}
-              <div class="num">
+              <div class="num s-target">
                 {t('dash.saveTarget')}:
                 {#if race.save_target != null}
                   <strong>{fixed(race.save_target, 2)}</strong> {t('dash.perLap')}
-                  {#if saveDelta != null && dashboardLayout.shows('stops', 'saveDelta')}
-                    <div class="muted">{t('dash.saveDelta', { n: signed(saveDelta, 2) })}</div>
-                  {/if}
                 {:else}
                   <span class="muted">{t('dash.saveNone')}</span>
                 {/if}
               </div>
+            {/if}
+            {#if race.save_target != null && saveDelta != null && dashboardLayout.shows('stops', 'saveDelta')}
+              <div class="muted s-delta">{t('dash.saveDelta', { n: signed(saveDelta, 2) })}</div>
             {/if}
           {:else}
             <div class="big muted">–</div>
@@ -273,7 +273,12 @@
   .mapbox { flex: 1; min-height: 160px; min-width: 0; display: flex; }
   :global(.tile.compact) .big { font-size: clamp(1.4rem, 9cqw, 2.4rem); }
   :global(.tile.value) .big { font-size: clamp(1.6rem, 24cqw, 5rem); }
-:global(.tile.compact) .num div { display: inline; margin-left: 0.6em; }
+/* Stops tile, compact: the number on the left spans two lines, laps and target on the first, the difference on the second. */
+  :global(.tile.compact[data-tile='stops'] .body) { display: grid; grid-template-columns: auto auto 1fr; grid-template-rows: auto auto; align-items: center; column-gap: 14px; row-gap: 0; }
+  :global(.tile.compact[data-tile='stops']) .big { grid-column: 1; grid-row: 1 / 3; font-size: clamp(2rem, 8cqw, 3rem); }
+  :global(.tile.compact[data-tile='stops']) .s-laps { grid-column: 2; grid-row: 1; }
+  :global(.tile.compact[data-tile='stops']) .s-target { grid-column: 3; grid-row: 1; }
+  :global(.tile.compact[data-tile='stops']) .s-delta { grid-column: 2 / 4; grid-row: 2; }
   :global(.tile.compact) .name { font-size: 1.05em; }
   .big { font-size: clamp(2rem, 16cqw, 4.6rem); font-weight: 700; line-height: 1.05; }
   .unit { font-size: 0.4em; margin-left: 4px; color: var(--muted); font-weight: 500; }
