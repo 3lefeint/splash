@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [master]
-    tags: ["v*"]
+    tags: ["v*", "agent-v*"]
   pull_request:
     branches: [master]
 
@@ -69,6 +69,7 @@ jobs:
 
   image:
     needs: [backend, agent, web]
+    if: ${{ !startsWith(github.ref, 'refs/tags/agent-v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -102,12 +103,20 @@ jobs:
 
   agent-exe:
     needs: [agent]
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: windows-latest
     defaults:
       run:
         working-directory: agent
     steps:
       - uses: actions/checkout@v4
+      - name: Check that the tag matches the agent version
+        if: startsWith(github.ref, 'refs/tags/agent-v')
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#agent-v}"
+          grep -qxF "version = \"$version\"" pyproject.toml
+          grep -qxF "__version__ = \"$version\"" src/splash_agent/__init__.py
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -117,3 +126,24 @@ jobs:
         with:
           name: splash-agent-windows
           path: agent/dist/splash-agent.exe
+
+  agent-release:
+    needs: [agent-exe]
+    if: startsWith(github.ref, 'refs/tags/agent-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: splash-agent-windows
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum splash-agent.exe > splash-agent.exe.sha256
+          awk -v h="## [$GITHUB_REF_NAME]" 'index($0, h) == 1 { f = 1; next } /^## / { f = 0 } f' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Windows agent ${GITHUB_REF_NAME#agent-v}" > notes.md
+          gh release create "$GITHUB_REF_NAME" splash-agent.exe splash-agent.exe.sha256 \
+            --title "Agent ${GITHUB_REF_NAME#agent-v}" --notes-file notes.md --verify-tag
