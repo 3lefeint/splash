@@ -895,6 +895,14 @@ func (p *Postgres) SetAgentEmail(ctx context.Context, id int64, email string) er
 	return err
 }
 
+func (p *Postgres) RenameAgent(ctx context.Context, id int64, name string) error {
+	tag, err := p.pool.Exec(ctx, `UPDATE agents SET name = $2 WHERE id = $1`, id, name)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNoAgent
+	}
+	return err
+}
+
 func (p *Postgres) RevokeAgent(ctx context.Context, id int64) error {
 	_, err := p.pool.Exec(ctx, `UPDATE agents SET revoked = true WHERE id = $1`, id)
 	return err
@@ -932,11 +940,12 @@ func (p *Postgres) Teams(ctx context.Context) ([]Team, error) {
 	return out, rows.Err()
 }
 
-const memberSelect = `SELECT m.email, m.team_id, t.name, m.is_admin FROM team_members m JOIN teams t ON t.id = m.team_id`
+const memberSelect = `SELECT m.email, m.team_id, t.name, m.is_admin, m.name, m.short, m.cf_client_id, m.cf_secret IS NOT NULL
+FROM team_members m JOIN teams t ON t.id = m.team_id`
 
 func (p *Postgres) MemberByEmail(ctx context.Context, email string) (Member, bool, error) {
 	var v Member
-	err := p.pool.QueryRow(ctx, memberSelect+` WHERE m.email = $1`, email).Scan(&v.Email, &v.TeamID, &v.Team, &v.IsAdmin)
+	err := p.pool.QueryRow(ctx, memberSelect+` WHERE m.email = $1`, email).Scan(&v.Email, &v.TeamID, &v.Team, &v.IsAdmin, &v.Name, &v.Short, &v.CFClientID, &v.HasCFSecret)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Member{}, false, nil
 	}
@@ -952,7 +961,7 @@ func (p *Postgres) Members(ctx context.Context) ([]Member, error) {
 	out := []Member{}
 	for rows.Next() {
 		var v Member
-		if err := rows.Scan(&v.Email, &v.TeamID, &v.Team, &v.IsAdmin); err != nil {
+		if err := rows.Scan(&v.Email, &v.TeamID, &v.Team, &v.IsAdmin, &v.Name, &v.Short, &v.CFClientID, &v.HasCFSecret); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
@@ -965,14 +974,32 @@ const foreignKeyViolation = "23503"
 
 func (p *Postgres) SetMember(ctx context.Context, v Member) error {
 	_, err := p.pool.Exec(ctx, `
-INSERT INTO team_members (email, team_id, is_admin) VALUES ($1,$2,$3)
-ON CONFLICT (email) DO UPDATE SET team_id = EXCLUDED.team_id, is_admin = EXCLUDED.is_admin`,
-		v.Email, v.TeamID, v.IsAdmin)
+INSERT INTO team_members (email, team_id, is_admin, name, short, cf_client_id) VALUES ($1,$2,$3,$4,$5,$6)
+ON CONFLICT (email) DO UPDATE SET team_id = EXCLUDED.team_id, is_admin = EXCLUDED.is_admin, name = EXCLUDED.name,
+    short = EXCLUDED.short, cf_client_id = EXCLUDED.cf_client_id`,
+		v.Email, v.TeamID, v.IsAdmin, v.Name, v.Short, v.CFClientID)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == foreignKeyViolation {
 		return ErrNoTeam
 	}
+	if errors.As(err, &pe) && pe.Code == uniqueViolation {
+		return ErrShortTaken
+	}
 	return err
+}
+
+func (p *Postgres) SetMemberSecret(ctx context.Context, email string, sealed []byte) error {
+	_, err := p.pool.Exec(ctx, `UPDATE team_members SET cf_secret = $2 WHERE email = $1`, email, sealed)
+	return err
+}
+
+func (p *Postgres) MemberSecret(ctx context.Context, email string) ([]byte, error) {
+	var sealed []byte
+	err := p.pool.QueryRow(ctx, `SELECT cf_secret FROM team_members WHERE email = $1`, email).Scan(&sealed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return sealed, err
 }
 
 func (p *Postgres) DeleteMember(ctx context.Context, email string) error {

@@ -78,6 +78,20 @@ spec:
                   name: splash-access
                   key: admin-emails
                   optional: true
+            # Key that seals the Cloudflare secrets of the members in the database, and the address members reach the
+            # backend at (for the configuration of an agent). Optional: without the key no secret is stored.
+            - name: SPLASH_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: splash-access
+                  key: secret-key
+                  optional: true
+            - name: SPLASH_PUBLIC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: splash-access
+                  key: public-url
+                  optional: true
           readinessProbe:
             httpGet:
               path: /healthz

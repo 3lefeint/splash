@@ -5,6 +5,7 @@ import (
 	"context"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +34,7 @@ type memShared struct {
 	teams   map[int64]Team
 	agents  map[int64]*memAgent
 	members map[string]Member
+	secrets map[string][]byte // sealed Cloudflare secrets by member address
 	audit   []AuditEntry
 	views   map[int64]*Memory
 }
@@ -102,6 +104,7 @@ func NewMemory() *Memory {
 		teams:   map[int64]Team{1: {1, DefaultTeamName}},
 		agents:  map[int64]*memAgent{},
 		members: map[string]Member{},
+		secrets: map[string][]byte{},
 		views:   map[int64]*Memory{},
 	}
 	root := &Memory{newMemTeam(), sh, 0}
@@ -812,6 +815,17 @@ func (m *Memory) SetAgentEmail(_ context.Context, id int64, email string) error 
 	return nil
 }
 
+func (m *Memory) RenameAgent(_ context.Context, id int64, name string) error {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	a, ok := m.agents[id]
+	if !ok {
+		return ErrNoAgent
+	}
+	a.Name = name
+	return nil
+}
+
 func (m *Memory) RevokeAgent(_ context.Context, id int64) error {
 	m.smu.Lock()
 	defer m.smu.Unlock()
@@ -856,7 +870,28 @@ func (m *Memory) Teams(_ context.Context) ([]Team, error) {
 // member returns the member with the name of its team filled in.
 func (m *Memory) member(v Member) Member {
 	v.Team = m.teams[v.TeamID].Name
+	v.HasCFSecret = len(m.secrets[v.Email]) > 0
 	return v
+}
+
+func (m *Memory) SetMemberSecret(_ context.Context, email string, sealed []byte) error {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	if _, ok := m.members[email]; !ok {
+		return nil
+	}
+	if len(sealed) == 0 {
+		delete(m.secrets, email)
+	} else {
+		m.secrets[email] = append([]byte(nil), sealed...)
+	}
+	return nil
+}
+
+func (m *Memory) MemberSecret(_ context.Context, email string) ([]byte, error) {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	return append([]byte(nil), m.secrets[email]...), nil
 }
 
 func (m *Memory) MemberByEmail(_ context.Context, email string) (Member, bool, error) {
@@ -883,7 +918,14 @@ func (m *Memory) SetMember(_ context.Context, v Member) error {
 	if _, ok := m.teams[v.TeamID]; !ok {
 		return ErrNoTeam
 	}
-	v.Team = ""
+	v.Team, v.HasCFSecret = "", false
+	if v.Short != "" {
+		for email, other := range m.members {
+			if email != v.Email && other.TeamID == v.TeamID && strings.EqualFold(other.Short, v.Short) {
+				return ErrShortTaken
+			}
+		}
+	}
 	m.members[v.Email] = v
 	return nil
 }
@@ -892,6 +934,7 @@ func (m *Memory) DeleteMember(_ context.Context, email string) error {
 	m.smu.Lock()
 	defer m.smu.Unlock()
 	delete(m.members, email)
+	delete(m.secrets, email)
 	return nil
 }
 

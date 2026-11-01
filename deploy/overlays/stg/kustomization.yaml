@@ -44,3 +44,9 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/env/4/valueFrom/secretKeyRef/name
         value: splash-stg-access
+      - op: replace
+        path: /spec/template/spec/containers/0/env/5/valueFrom/secretKeyRef/name
+        value: splash-stg-access
+      - op: replace
+        path: /spec/template/spec/containers/0/env/6/valueFrom/secretKeyRef/name
+        value: splash-stg-access
