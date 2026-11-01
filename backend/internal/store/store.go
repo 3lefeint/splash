@@ -37,6 +37,13 @@ type Member struct {
 	TeamID  int64
 	Team    string // name of the team, filled when reading
 	IsAdmin bool
+	// Name is what the member is called, Short their short name (2 to 8 letters or digits, lower case, unique in the
+	// team); the agent of the member is named after it. Both may be empty.
+	Name, Short string
+	// CFClientID is the client id of the Cloudflare Access service token of the member's agent. The secret is kept
+	// apart (MemberSecret); HasCFSecret says whether there is one.
+	CFClientID  string
+	HasCFSecret bool
 }
 
 // AuditEntry is one write request: who did it, in which team and what was requested. Bodies and tokens are never kept.
@@ -56,6 +63,9 @@ var (
 	ErrNoLap     = errors.New("unknown lap")
 	ErrNoSession = errors.New("unknown session")
 )
+
+// ErrShortTaken is returned when another member of the team already has the short name.
+var ErrShortTaken = errors.New("short name taken")
 
 // ErrNoCar is returned when a team car does not exist.
 var ErrNoCar = errors.New("unknown car")
@@ -86,9 +96,15 @@ type Directory interface {
 	MemberByEmail(ctx context.Context, email string) (m Member, ok bool, err error)
 	// Members lists all members by e-mail address.
 	Members(ctx context.Context) ([]Member, error)
-	// SetMember adds an address to a team or changes its team and admin flag. The team must exist.
+	// SetMember adds an address to a team or changes its team, admin flag, name, short name and Cloudflare client id. The
+	// team must exist; ErrShortTaken when another member of the team has the short name.
 	SetMember(ctx context.Context, m Member) error
 	DeleteMember(ctx context.Context, email string) error
+	// SetMemberSecret stores the sealed Cloudflare secret of a member; nil removes it. The store never sees the plain
+	// text. It does nothing for an unknown address.
+	SetMemberSecret(ctx context.Context, email string, sealed []byte) error
+	// MemberSecret returns the sealed Cloudflare secret of a member; nil when there is none.
+	MemberSecret(ctx context.Context, email string) ([]byte, error)
 	// Agents lists all registered agents by id.
 	Agents(ctx context.Context) ([]Agent, error)
 	// AddAudit appends one entry to the audit log.
@@ -102,6 +118,8 @@ type Directory interface {
 	// SetAgentEmail ties an agent to the member with this address; an empty address removes the tie. It returns
 	// ErrNoAgent for an unknown agent.
 	SetAgentEmail(ctx context.Context, id int64, email string) error
+	// RenameAgent changes the name of an agent; ErrNoAgent for an unknown one.
+	RenameAgent(ctx context.Context, id int64, name string) error
 	// RevokeAgent makes the token of an agent stop working.
 	RevokeAgent(ctx context.Context, id int64) error
 	// AgentByTokenHash finds the agent whose token has this hash, revoked or not; ok is false when none matches.

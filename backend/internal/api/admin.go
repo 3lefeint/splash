@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -61,10 +62,19 @@ type teamJSON struct {
 }
 
 type memberJSON struct {
-	Email   string `json:"email"`
-	TeamID  int64  `json:"team_id"`
-	Team    string `json:"team,omitempty"`
-	IsAdmin bool   `json:"is_admin"`
+	Email      string `json:"email"`
+	TeamID     int64  `json:"team_id"`
+	Team       string `json:"team,omitempty"`
+	IsAdmin    bool   `json:"is_admin"`
+	Name       string `json:"name"`
+	Short      string `json:"short"`
+	CFClientID string `json:"cf_client_id"`
+	// HasCFSecret says there is a Cloudflare secret; it is never sent back.
+	HasCFSecret bool `json:"has_cf_secret"`
+}
+
+func memberOf(m store.Member) memberJSON {
+	return memberJSON{m.Email, m.TeamID, m.Team, m.IsAdmin, m.Name, m.Short, m.CFClientID, m.HasCFSecret}
 }
 
 type agentJSON struct {
@@ -148,7 +158,7 @@ func (a *API) adminMembers(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]memberJSON, 0, len(list))
 	for _, m := range list {
-		out = append(out, memberJSON{m.Email, m.TeamID, m.Team, m.IsAdmin})
+		out = append(out, memberOf(m))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -161,10 +171,28 @@ func normalizeEmail(s string) (string, bool) {
 	return s, at > 0 && at < len(s)-1 && len(s) <= maxEmail && !strings.ContainsAny(s, " \t\r\n,;<>")
 }
 
-// adminSetMember adds an address to a team or moves it, and sets its admin flag. An administrator cannot lock
-// themselves out by removing their own admin flag.
+var shortPattern = regexp.MustCompile(`^[a-z0-9]{2,8}$`)
+
+const (
+	maxMemberName = 60
+	maxCFID       = 200
+	maxCFSecret   = 500
+)
+
+// adminSetMember adds an address to a team or changes it: team, admin flag, name, short name and the Cloudflare service
+// token of the member's agent. Fields left out of the request keep their value; the secret is only ever written, never
+// read back. An administrator cannot lock themselves out by removing their own admin flag.
 func (a *API) adminSetMember(w http.ResponseWriter, r *http.Request) {
-	var req memberJSON
+	var req struct {
+		Email      string  `json:"email"`
+		TeamID     int64   `json:"team_id"`
+		IsAdmin    bool    `json:"is_admin"`
+		Name       *string `json:"name"`
+		Short      *string `json:"short"`
+		CFClientID *string `json:"cf_client_id"`
+		CFSecret   *string `json:"cf_secret"`
+		ClearCF    bool    `json:"clear_cf"`
+	}
 	if !decode(w, r, &req) {
 		return
 	}
@@ -177,17 +205,104 @@ func (a *API) adminSetMember(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusConflict, "you cannot remove your own admin flag")
 		return
 	}
-	err := a.Teams.Dir.SetMember(r.Context(), store.Member{Email: email, TeamID: req.TeamID, IsAdmin: req.IsAdmin})
-	if errors.Is(err, store.ErrNoTeam) {
-		fail(w, http.StatusBadRequest, "unknown team")
-		return
-	}
+	ctx := r.Context()
+	old, _, err := a.Teams.Dir.MemberByEmail(ctx, email)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	a.adminLog(r, "member_set", "member", logx.ShortID(email), "team_id", req.TeamID, "is_admin", req.IsAdmin)
-	writeJSON(w, http.StatusOK, memberJSON{Email: email, TeamID: req.TeamID, IsAdmin: req.IsAdmin})
+	m := store.Member{Email: email, TeamID: req.TeamID, IsAdmin: req.IsAdmin, Name: old.Name, Short: old.Short, CFClientID: old.CFClientID}
+	if req.Name != nil {
+		m.Name = strings.TrimSpace(*req.Name)
+		if len(m.Name) > maxMemberName {
+			fail(w, http.StatusBadRequest, "a name of at most 60 characters")
+			return
+		}
+	}
+	if req.Short != nil {
+		m.Short = strings.ToLower(strings.TrimSpace(*req.Short))
+		if m.Short != "" && !shortPattern.MatchString(m.Short) {
+			fail(w, http.StatusBadRequest, "the short name has 2 to 8 letters or digits")
+			return
+		}
+	}
+	if req.CFClientID != nil {
+		m.CFClientID = strings.TrimSpace(*req.CFClientID)
+		if len(m.CFClientID) > maxCFID {
+			fail(w, http.StatusBadRequest, "the Cloudflare client id is too long")
+			return
+		}
+	}
+	secret := ""
+	if req.CFSecret != nil {
+		secret = strings.TrimSpace(*req.CFSecret)
+	}
+	if secret != "" {
+		if a.Secrets == nil {
+			fail(w, http.StatusConflict, "this backend has no key to store Cloudflare secrets (SPLASH_SECRET_KEY)")
+			return
+		}
+		if len(secret) > maxCFSecret || m.CFClientID == "" {
+			fail(w, http.StatusBadRequest, "a Cloudflare secret needs its client id and is at most 500 characters")
+			return
+		}
+	}
+	// A secret belongs to its client id: a changed id without a new secret, or a removed id, drops the old secret.
+	dropSecret := req.ClearCF || m.CFClientID == "" || (m.CFClientID != old.CFClientID && secret == "")
+	if req.ClearCF {
+		m.CFClientID = ""
+	}
+	switch err := a.Teams.Dir.SetMember(ctx, m); {
+	case errors.Is(err, store.ErrNoTeam):
+		fail(w, http.StatusBadRequest, "unknown team")
+		return
+	case errors.Is(err, store.ErrShortTaken):
+		fail(w, http.StatusConflict, "another member of the team has this short name")
+		return
+	case err != nil:
+		serverError(w, err)
+		return
+	}
+	switch {
+	case secret != "":
+		sealed, err := a.Secrets.Seal(secret, email)
+		if err == nil {
+			err = a.Teams.Dir.SetMemberSecret(ctx, email, sealed)
+		}
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+	case dropSecret && old.HasCFSecret:
+		if err := a.Teams.Dir.SetMemberSecret(ctx, email, nil); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
+	// The agent of a member is named after the short name.
+	if m.Short != "" && m.Short != old.Short {
+		a.renameAgentsOf(r, email, m.TeamID, m.Short)
+	}
+	a.adminLog(r, "member_set", "member", logx.ShortID(email), "team_id", req.TeamID, "is_admin", req.IsAdmin,
+		"cf_secret_set", secret != "", "cf_cleared", dropSecret)
+	saved, _, _ := a.Teams.Dir.MemberByEmail(ctx, email)
+	writeJSON(w, http.StatusOK, memberOf(saved))
+}
+
+// renameAgentsOf gives the agents of a member the new short name.
+func (a *API) renameAgentsOf(r *http.Request, email string, teamID int64, name string) {
+	list, err := a.Teams.Dir.Agents(r.Context())
+	if err != nil {
+		a.Log.Warn("agents could not be renamed", "err", err)
+		return
+	}
+	for _, ag := range list {
+		if ag.Email == email && ag.TeamID == teamID && !ag.Revoked && ag.Name != name {
+			if err := a.Teams.Dir.RenameAgent(r.Context(), ag.ID, name); err != nil {
+				a.Log.Warn("agent could not be renamed", "agent_id", ag.ID, "err", err)
+			}
+		}
+	}
 }
 
 func (a *API) adminDeleteMember(w http.ResponseWriter, r *http.Request) {

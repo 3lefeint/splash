@@ -20,7 +20,7 @@ Postgres is external. These Secrets must exist in the namespace before the first
 | `splash-stg-database`  | `url`   | Postgres URL (staging), role `splash_app`          |
 | `splash-stg-migrate`   | `url`   | Postgres URL (staging), role `splash`              |
 | `splash-stg-agent`     | `token` | Shared token the staging agents send               |
-| `splash-access`        | `team-domain`, `audience`, `admin-emails` | Prod: Cloudflare Access team domain and application audience tag (required), administrator addresses (`admin-emails`, optional) |
+| `splash-access`        | `team-domain`, `audience`, `admin-emails`, `secret-key`, `public-url` | Prod: Cloudflare Access team domain and application audience tag (required), administrator addresses (`admin-emails`, optional), the key that seals the Cloudflare secrets of the members (`secret-key`, 32 random bytes as base64, optional: without it no secret is stored) and the address members reach the backend at (`public-url`, e.g. `https://splash.example.com`, optional: derived from the request without it) |
 | `splash-stg-access`    | same keys | Staging: optional                                 |
 
 The prod Pods do not start without the secret `splash-access` and its keys `team-domain` and `audience`, so prod can

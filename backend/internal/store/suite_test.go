@@ -873,6 +873,60 @@ func runTeamSuite(t *testing.T, db DB) {
 		}
 	})
 
+	t.Run("members: name, short name and the sealed Cloudflare secret", func(t *testing.T) {
+		const alice, bob = "alice@example.com", "bob@example.com"
+		if err := db.SetMember(ctx, Member{Email: alice, TeamID: first.ID, Name: "Alice A", Short: "al", CFClientID: "id.access"}); err != nil {
+			t.Fatal(err)
+		}
+		got, ok, _ := db.MemberByEmail(ctx, alice)
+		if !ok || got.Name != "Alice A" || got.Short != "al" || got.CFClientID != "id.access" || got.HasCFSecret {
+			t.Fatalf("member %+v", got)
+		}
+		// the short name is unique in a team, whatever the case, and free in another team
+		if err := db.SetMember(ctx, Member{Email: bob, TeamID: first.ID, Short: "AL"}); err != ErrShortTaken {
+			t.Fatalf("same short in the team: %v", err)
+		}
+		if err := db.SetMember(ctx, Member{Email: bob, TeamID: other.ID, Short: "al"}); err != nil {
+			t.Fatalf("same short in another team: %v", err)
+		}
+		if err := db.SetMember(ctx, Member{Email: alice, TeamID: first.ID, Short: "al", Name: "Alice B"}); err != nil {
+			t.Fatalf("a member keeps their own short name: %v", err)
+		}
+		// the secret is kept apart; the member only says whether there is one
+		if sec, _ := db.MemberSecret(ctx, alice); len(sec) != 0 {
+			t.Fatalf("no secret yet: %v", sec)
+		}
+		if err := db.SetMemberSecret(ctx, alice, []byte{1, 2, 3}); err != nil {
+			t.Fatal(err)
+		}
+		if sec, _ := db.MemberSecret(ctx, alice); !reflect.DeepEqual(sec, []byte{1, 2, 3}) {
+			t.Fatalf("secret %v", sec)
+		}
+		if got, _, _ = db.MemberByEmail(ctx, alice); !got.HasCFSecret || got.Name != "Alice B" {
+			t.Fatalf("after storing the secret %+v", got)
+		}
+		// saving the member again does not touch the secret
+		db.SetMember(ctx, Member{Email: alice, TeamID: first.ID, Short: "al", CFClientID: "new.access"})
+		if sec, _ := db.MemberSecret(ctx, alice); len(sec) != 3 {
+			t.Fatalf("the secret survived saving the member: %v", sec)
+		}
+		list, _ := db.Members(ctx)
+		for _, m := range list {
+			if m.Email == alice && (!m.HasCFSecret || m.CFClientID != "new.access") {
+				t.Fatalf("listing %+v", m)
+			}
+		}
+		db.SetMemberSecret(ctx, alice, nil)
+		if sec, _ := db.MemberSecret(ctx, alice); len(sec) != 0 {
+			t.Fatalf("secret removed: %v", sec)
+		}
+		db.DeleteMember(ctx, alice)
+		db.DeleteMember(ctx, bob)
+		if sec, _ := db.MemberSecret(ctx, alice); len(sec) != 0 {
+			t.Fatalf("the secret goes with the member: %v", sec)
+		}
+	})
+
 	t.Run("an agent can be tied to a member and released again", func(t *testing.T) {
 		ag, err := db.CreateAgent(ctx, "owned", first.ID, HashToken("owned"))
 		if err != nil || ag.Email != "" {

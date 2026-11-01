@@ -19,6 +19,7 @@ import (
 	"github.com/3lefeint/splash/backend/internal/engine"
 	"github.com/3lefeint/splash/backend/internal/logx"
 	"github.com/3lefeint/splash/backend/internal/ratelimit"
+	"github.com/3lefeint/splash/backend/internal/secretbox"
 	"github.com/3lefeint/splash/backend/internal/store"
 	"github.com/3lefeint/splash/backend/internal/teams"
 	"github.com/3lefeint/splash/backend/internal/wire"
@@ -36,6 +37,12 @@ const (
 // team of the identity.
 type API struct {
 	Teams *teams.Registry
+	// Secrets seals the Cloudflare secrets of the members. Nil means the backend has no key (SPLASH_SECRET_KEY): then
+	// no secret is stored and the configuration of an agent has no Cloudflare lines.
+	Secrets *secretbox.Box
+	// PublicURL is the address members reach the backend at, e.g. https://splash.example.com, for the configuration of
+	// an agent. Empty derives it from the request.
+	PublicURL string
 	// Verifier checks the Cloudflare Access token of browser requests. Nil switches authentication off: every request
 	// then belongs to the team "default" and nobody is an administrator.
 	Verifier *auth.Verifier

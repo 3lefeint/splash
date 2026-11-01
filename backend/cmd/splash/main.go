@@ -20,6 +20,7 @@ import (
 	"github.com/3lefeint/splash/backend/internal/ingest"
 	"github.com/3lefeint/splash/backend/internal/logx"
 	"github.com/3lefeint/splash/backend/internal/ratelimit"
+	"github.com/3lefeint/splash/backend/internal/secretbox"
 	"github.com/3lefeint/splash/backend/internal/store"
 	"github.com/3lefeint/splash/backend/internal/teams"
 	"github.com/3lefeint/splash/backend/internal/webui"
@@ -192,6 +193,14 @@ func run(log *slog.Logger) error {
 	default:
 		log.Warn("SPLASH_ACCESS_TEAM_DOMAIN not set: browser requests are not authenticated and belong to the team default")
 	}
+	if key := os.Getenv("SPLASH_SECRET_KEY"); key != "" {
+		if a.Secrets, err = secretbox.New(key); err != nil {
+			return fmt.Errorf("SPLASH_SECRET_KEY: %w", err)
+		}
+	} else {
+		log.Warn("SPLASH_SECRET_KEY not set: Cloudflare secrets of members cannot be stored, agent configurations have no Cloudflare lines")
+	}
+	a.PublicURL = strings.TrimRight(strings.TrimSpace(os.Getenv("SPLASH_PUBLIC_URL")), "/")
 	a.Start(ctx)
 
 	mux := http.NewServeMux()
