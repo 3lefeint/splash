@@ -25,7 +25,7 @@
           {#if !a.connected}{t('agents.gone', { s: age(a.since) })}
           {:else if stale}{t('agents.stale', { s: sec })}
           {:else}{t('agents.ok', { s: sec })}{/if}
-          {#if a.version} · v{a.version}{/if}
+          {#if a.version} · v{a.version}{/if}{#if a.outdated} · <b class="outdated">{t('agents.outdated')}</b>{/if}
         </span>
       </li>
     {/each}
@@ -42,4 +42,5 @@
   .dot.bad { background: var(--bad, #e5534b); }
   .gone { opacity: 0.8; }
   .small { font-size: 0.8rem; }
+  .outdated { color: var(--warn, #e5a50a); }
 </style>

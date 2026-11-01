@@ -1,4 +1,4 @@
-import type { AdminAgent, AdminMember, AdminTeam, CreatedAgent, Me, Corner, MapProgress, TrackInfo, SessionSummary, OverrideKey, Params, PitSetup, PlanRow, Step, TrackMap } from './types';
+import type { AdminAgent, AgentInfo, AdminMember, AdminTeam, CreatedAgent, Me, Corner, MapProgress, TrackInfo, SessionSummary, OverrideKey, Params, PitSetup, PlanRow, Step, TrackMap } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -27,6 +27,19 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
+/** The agent the app looks at, or null for the member's own. Requests about one agent carry it. */
+let selectedAgent: number | null = null;
+export function useAgent(id: number | null): void {
+  selectedAgent = id;
+}
+/** Adds the selected agent to a URL that is about one agent: its state, its overrides, its commands. */
+export function withAgent(url: string): string {
+  if (selectedAgent === null) return url;
+  return url + (url.includes('?') ? '&' : '?') + `agent=${selectedAgent}`;
+}
+
+export const getAgents = () => request<AgentInfo[]>('GET', '/api/agents');
+
 export const getPlan = () => request<PlanRow[]>('GET', '/api/stint-plan');
 export const putPlan = (rows: PlanRow[]) => request<PlanRow[]>('PUT', '/api/stint-plan', rows);
 
@@ -44,8 +57,8 @@ export const putParams = (p: Params) =>
   request<Params>('PUT', `/api/params?track=${encodeURIComponent(p.track)}&car=${encodeURIComponent(p.car)}`, p);
 
 export const setOverride = (key: OverrideKey, value: number) =>
-  request<{ key: string; value: number }>('PUT', `/api/overrides/${key}`, { value });
-export const clearOverride = (key: OverrideKey) => request<void>('DELETE', `/api/overrides/${key}`);
+  request<{ key: string; value: number }>('PUT', withAgent(`/api/overrides/${key}`), { value });
+export const clearOverride = (key: OverrideKey) => request<void>('DELETE', withAgent(`/api/overrides/${key}`));
 
 /** Outline of a track, or null while none has been recorded. */
 export async function getTrackMap(track: string): Promise<TrackMap | null> {
@@ -70,7 +83,7 @@ export const putPitSetup = (s: PitSetup) => request<PitSetup>('PUT', '/api/pit-s
 export const deletePitSetup = (car: string, name: string) =>
   request<void>('DELETE', `/api/pit-setups?car=${encodeURIComponent(car)}&name=${encodeURIComponent(name)}`);
 export const applyPitSetup = (name: string, steps: Step[]) =>
-  request<{ id: string }>('POST', '/api/pit-setups/apply', { name, steps });
+  request<{ id: string }>('POST', withAgent('/api/pit-setups/apply'), { name, steps });
 
 /** The outline recorded so far, or null while none is being recorded. */
 export async function getMapProgress(track: string): Promise<MapProgress | null> {
@@ -88,9 +101,9 @@ export const getSessions = () => request<SessionSummary[]>('GET', '/api/sessions
 export const exportUrl = (sessionId: string, kind: 'laps' | 'stops' | 'conditions') =>
   `/api/sessions/${encodeURIComponent(sessionId)}/export?kind=${kind}`;
 
-/** Toggles the pit request of the driven car through the driver agent. */
+/** Toggles the pit request of the driven car through the selected agent. */
 export const pitRequest = (name: string) =>
-  request<{ id: string }>('POST', `/api/pit-request?name=${encodeURIComponent(name)}`);
+  request<{ id: string }>('POST', withAgent(`/api/pit-request?name=${encodeURIComponent(name)}`));
 
 export const getMe = () => request<Me>('GET', '/api/me');
 
@@ -102,6 +115,9 @@ export const adminSetMember = (m: { email: string; team_id: number; is_admin: bo
 export const adminDeleteMember = (email: string) =>
   request<void>('DELETE', `/api/admin/members?email=${encodeURIComponent(email)}`);
 export const adminAgents = () => request<AdminAgent[]>('GET', '/api/admin/agents');
-export const adminCreateAgent = (name: string, teamId: number) =>
-  request<CreatedAgent>('POST', '/api/admin/agents', { name, team_id: teamId });
+export const adminCreateAgent = (name: string, teamId: number, email: string) =>
+  request<CreatedAgent>('POST', '/api/admin/agents', { name, team_id: teamId, email });
+/** Ties an agent to a member of its team; an empty address releases it. */
+export const adminSetAgentEmail = (id: number, email: string) =>
+  request<AdminAgent>('PUT', `/api/admin/agents/${id}`, { email });
 export const adminRevokeAgent = (id: number) => request<void>('POST', `/api/admin/agents/${id}/revoke`);

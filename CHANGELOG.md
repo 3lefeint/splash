@@ -68,6 +68,7 @@
 - Each lap stores the agent whose token delivered it (`laps.agent_id`), taken from the token and not from the agent id in the message
 - Live state, engine, SSE stream and overrides exist per agent instead of per team, so members who train at the same time, also in different sessions, no longer disturb each other; `/api/state`, `/api/stream` and `/api/overrides` take `?agent=<id>` and otherwise show the agent of the member's own address (an agent can be tied to a member in the admin API, `PUT /api/admin/agents/{id}`, or when it is created) or an empty state if the member has none, and one active agent when authentication is off; `GET /api/agents` lists the agents of the team for choosing; the state carries `agent_id` and `agent_name`
 - Pit requests and pit setups are sent to the requesting member's own agent (or one named with `?agent=` that belongs to them; an administrator may name any), the status of the last command is kept per agent, and the agent list marks agents older than `SPLASH_AGENT_MIN_VERSION` as outdated
+- Web: the administration page lists the agents under their member, with a field for the member an agent belongs to when it is created, and release, assign and revoke actions (agents without a member in a list of their own); a picker in the header chooses whose data to see (the own agent by default, remembered in the browser), overrides and pit commands go to the chosen agent, and a member without an agent gets a notice instead of an empty page; the agent list marks outdated agents
 
 ### Changed
 

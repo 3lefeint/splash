@@ -57,6 +57,9 @@ export class Live {
   /** Why reconnecting stopped: the session is over (log in again) or the user may not use the app. */
   authProblem = $state<'expired' | 'denied' | null>(null);
 
+  /** The agent to look at, or null for the member's own. */
+  agent = $state<number | null>(null);
+
   private source: EventSourceLike | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
@@ -100,8 +103,21 @@ export class Live {
     this.retry = null;
   }
 
+  /** Looks at another agent. The stream is opened again for it; the shown state is replaced by its first message. */
+  setAgent(id: number | null): void {
+    if (id === this.agent) return;
+    this.agent = id;
+    if (!this.running) return;
+    this.source?.close();
+    this.source = null;
+    if (this.retry) clearTimeout(this.retry);
+    this.retry = null;
+    this.attempt = 0;
+    this.open();
+  }
+
   private open(): void {
-    const es = this.deps.eventSource('/api/stream');
+    const es = this.deps.eventSource(this.agent === null ? '/api/stream' : `/api/stream?agent=${this.agent}`);
     this.source = es;
     this.heardAt = this.deps.now();
     es.onopen = () => {

@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import AgentNotice from './components/AgentNotice.svelte';
+  import AgentPicker from './components/AgentPicker.svelte';
   import Banner from './components/Banner.svelte';
   import ConnectionNotice from './components/ConnectionNotice.svelte';
   import StatusChip from './components/StatusChip.svelte';
@@ -12,6 +14,7 @@
   import TracksView from './views/TracksView.svelte';
   import AdminView from './views/AdminView.svelte';
   import { announcements } from './lib/announce';
+  import { agents } from './lib/agent.svelte';
   import { announcer } from './lib/announcer.svelte';
   import { corners } from './lib/corners.svelte';
   import { duration } from './lib/format';
@@ -24,9 +27,13 @@
 
   onMount(() => {
     router.start();
+    agents.start(); // applies the chosen agent before the stream opens
     live.start();
     void identity.load();
-    return () => live.stop();
+    return () => {
+      live.stop();
+      agents.stop();
+    };
   });
 
   const state = $derived(live.state);
@@ -76,9 +83,11 @@
       <span class="left num" title={t('dash.timeLeft')}><span class="muted label">{t('dash.timeLeft')}</span> <strong>{duration(timeLeft)}</strong></span>
     {/if}
     <button class="snd" class:on={settings.soundMode !== 'off'} onclick={cycleSound} title={t('sound.title')} aria-label={t('sound.title')}>{t(`sound.${settings.soundMode}` as 'sound.off')}</button>
+    <AgentPicker />
     <StatusChip />
   </div>
   <ConnectionNotice />
+  <AgentNotice />
   <Banner />
 </header>
 

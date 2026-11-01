@@ -196,8 +196,12 @@ export interface Sections {
 
 export interface AgentStatus {
   agent_id: string;
+  /** The registered agent whose token this agent used; 0 for the shared token. */
+  token_id?: number;
   role: 'driver' | 'spotter';
   version?: string;
+  /** Older than the minimum version the backend asks for. */
+  outdated?: boolean;
   session_id?: string;
   connected: boolean;
   since: string; // connected since, or gone since
@@ -315,6 +319,9 @@ export interface PitStats {
 }
 
 export interface State {
+  /** Whose state this is: a registered agent, 0 for the shared token, -1 when there is no agent to show. Missing in states cached before agents had their own. */
+  agent_id?: number;
+  agent_name?: string;
   ready: boolean;
   session_id?: string;
   track?: string;
@@ -388,6 +395,8 @@ export interface AdminAgent {
   id: number;
   name: string;
   team_id: number;
+  /** The member the agent belongs to; empty for none. */
+  email: string;
   revoked: boolean;
   last_seen: string | null;
 }
@@ -395,4 +404,15 @@ export interface AdminAgent {
 /** The reply to creating an agent; the token is shown only this once. */
 export interface CreatedAgent extends AdminAgent {
   token: string;
+}
+
+/** An agent of the team as the picker lists it. */
+export interface AgentInfo {
+  id: number;
+  name: string;
+  mine: boolean;
+  active: boolean;
+  last_sample: string | null;
+  last_seen: string | null;
+  session_id?: string;
 }
