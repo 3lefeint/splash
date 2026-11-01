@@ -3,6 +3,7 @@ import { render } from 'svelte/server';
 import PitsPanel from '../components/PitsPanel.svelte';
 import SettingsView from './SettingsView.svelte';
 import { applySuggestion, differs } from '../lib/pits';
+import { dashboardLayout } from '../lib/layout.svelte';
 import { settings } from '../lib/settings.svelte';
 import { live } from '../lib/store';
 import type { Params, State } from '../lib/types';
@@ -33,9 +34,23 @@ describe('the pit stop tile', () => {
   });
   it('suggests no tyre change any more', () => {
     live.state = state([row()], { pit_through: 20, refuel_rate: 2, driver_swap: null });
+    dashboardLayout.reset();
+    dashboardLayout.toggleLine('pits', 'suggest');
     const out = html(PitsPanel);
     expect(out).not.toContain('Tyre change');
     expect(out).toContain('Through the pit lane');
+    dashboardLayout.reset();
+  });
+  it('keeps the suggestions out of the tile until they are switched on', () => {
+    live.state = state([row()], { pit_through: 20, refuel_rate: 2, driver_swap: null });
+    dashboardLayout.reset();
+    expect(html(PitsPanel)).not.toContain('Through the pit lane');
+  });
+  it('lists the latest stop first', () => {
+    live.state = state([row({ no: 1 }), row({ no: 2 }), row({ no: 3 })], undefined);
+    const out = html(PitsPanel);
+    const numbers = [...out.matchAll(/<td[^>]*>(\d)<\/td>/g)].map((m) => m[1]);
+    expect(numbers).toEqual(['3', '2', '1']);
   });
 });
 

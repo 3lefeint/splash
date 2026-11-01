@@ -1,6 +1,6 @@
 import { compact, reconcile, rows, type Item } from './grid';
 import { readJson, safeStorage, writeJson } from './storage';
-import { cleanOptions, type TileOptions } from './tiles';
+import { cleanOptions, OFF_BY_DEFAULT, type TileOptions } from './tiles';
 
 const KEY = 'splash.layout.dashboard';
 const VERSION = 2; // 1 is the same without the options of the tiles
@@ -58,9 +58,10 @@ class DashboardLayout {
     return this.options[id] ?? {};
   }
 
-  /** False when the line is switched off in the gear of the tile. */
+  /** False when the line is switched off in the gear of the tile (or off by default and not switched on). */
   shows(id: string, line: string): boolean {
-    return !this.optionsOf(id).hide?.includes(line);
+    const o = this.optionsOf(id);
+    return OFF_BY_DEFAULT[id]?.includes(line) ? !!o.show?.includes(line) : !o.hide?.includes(line);
   }
 
   setOption(id: string, patch: Partial<TileOptions>): void {
@@ -69,8 +70,10 @@ class DashboardLayout {
   }
 
   toggleLine(id: string, line: string): void {
-    const hide = this.optionsOf(id).hide ?? [];
-    this.setOption(id, { hide: hide.includes(line) ? hide.filter((l) => l !== line) : [...hide, line] });
+    const o = this.optionsOf(id);
+    const key = OFF_BY_DEFAULT[id]?.includes(line) ? 'show' : 'hide';
+    const list = o[key] ?? [];
+    this.setOption(id, { [key]: list.includes(line) ? list.filter((l) => l !== line) : [...list, line] });
   }
 
   /** Takes the new positions of the visible tiles; hidden tiles keep theirs. */

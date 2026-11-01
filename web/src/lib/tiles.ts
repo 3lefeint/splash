@@ -8,6 +8,8 @@ export interface TileOptions {
   mode?: TileMode;
   /** Lines switched off. */
   hide?: string[];
+  /** Lines switched on that are off by default. */
+  show?: string[];
   /** Columns of the grid inside the tile (pit set-ups). */
   columns?: number;
   /** Place of the buttons inside the tile by name (pit set-ups). */
@@ -24,7 +26,15 @@ export const TILE_LINES: Record<string, string[]> = {
   driver: ['laps'],
   opponents: ['trend'],
   plan: ['next', 'deviation'],
+  pits: ['suggest'],
+  model: ['apply'],
 };
+
+/** Lines that are off until they are switched on in the gear: the buttons that change parameters are not needed during a race. */
+export const OFF_BY_DEFAULT: Record<string, string[]> = { pits: ['suggest'], model: ['apply'] };
+
+/** Tiles that can be shown compact or as the value only. */
+export const MODE_TILES = new Set(['next', 'fuel', 'stops', 'driver', 'opponents', 'plan']);
 
 /** Tiles with a gear: those with lines to switch off (they also have the modes) and those with controls of their own. */
 export const hasGear = (id: string): boolean => id in TILE_LINES || id === 'map' || id === 'setups';
@@ -53,10 +63,12 @@ export function cleanOptions(raw: unknown, known: Set<string>): Record<string, T
     const o = v as Record<string, unknown>;
     const clean: TileOptions = {};
     if (o.mode === 'compact' || o.mode === 'value') clean.mode = o.mode;
-    if (Array.isArray(o.hide)) {
+    for (const key of ['hide', 'show'] as const) {
+      const v = o[key];
+      if (!Array.isArray(v)) continue;
       const lines = TILE_LINES[id] ?? [];
-      const hide = o.hide.filter((l): l is string => typeof l === 'string' && lines.includes(l));
-      if (hide.length) clean.hide = hide;
+      const kept = v.filter((l): l is string => typeof l === 'string' && lines.includes(l));
+      if (kept.length) clean[key] = kept;
     }
     if (Number.isInteger(o.columns) && (o.columns as number) >= 1 && (o.columns as number) <= MAX_COLUMNS) {
       clean.columns = o.columns as number;

@@ -42,3 +42,16 @@ describe('dashboard layout options', () => {
     expect(dashboardLayout.optionsOf('stops')).toEqual({});
   });
 });
+
+describe('lines that are off by default', () => {
+  it('show up only after they are switched on', () => {
+    dashboardLayout.reset();
+    expect(dashboardLayout.shows('model', 'apply')).toBe(false);
+    dashboardLayout.toggleLine('model', 'apply');
+    expect(dashboardLayout.shows('model', 'apply')).toBe(true);
+    expect(dashboardLayout.optionsOf('model')).toEqual({ show: ['apply'] });
+    dashboardLayout.toggleLine('model', 'apply');
+    expect(dashboardLayout.shows('model', 'apply')).toBe(false);
+    dashboardLayout.reset();
+  });
+});
