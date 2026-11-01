@@ -303,7 +303,7 @@ func TestWriteRateLimitPerIdentity(t *testing.T) {
 	lim.SetClock(func() time.Time { return clock })
 	r.api.WriteLimit = lim
 	put := func(email string) (int, http.Header) {
-		code, _, h := r.do(t, r.tok(email), "PUT", "/api/overrides/fuel", `{"value":5}`)
+		code, _, h := r.do(t, r.tok(email), "PUT", "/api/stint-plan", `[{"driver":"a","duration":3600}]`)
 		return code, h
 	}
 	for i := 0; i < 2; i++ {

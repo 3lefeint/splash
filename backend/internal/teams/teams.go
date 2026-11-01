@@ -43,6 +43,22 @@ type AgentRT struct {
 	Name   string
 	Live   *live.State
 	Engine *engine.Engine
+
+	mu    sync.Mutex
+	email string
+}
+
+// Email is the member the agent belongs to; empty for none.
+func (a *AgentRT) Email() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.email
+}
+
+func (a *AgentRT) setEmail(email string) {
+	a.mu.Lock()
+	a.email = email
+	a.mu.Unlock()
 }
 
 // Agent returns the runtime of an agent and creates it on first use. Agent 0 is the shared dev token.
@@ -50,12 +66,34 @@ func (rt *Runtime) Agent(ref ingest.AgentRef) *AgentRT {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if a, ok := rt.agents[ref.ID]; ok {
+		a.setEmail(ref.Email) // the address may have changed since the agent connected last
 		return a
 	}
 	lv := &live.State{}
-	a := &AgentRT{ID: ref.ID, Name: ref.Name, Live: lv, Engine: rt.engines(ref, lv)}
+	a := &AgentRT{ID: ref.ID, Name: ref.Name, Live: lv, Engine: rt.engines(ref, lv), email: ref.Email}
 	rt.agents[ref.ID] = a
 	return a
+}
+
+// SetAgentEmail passes a changed owner on to the runtime of the agent, if it has one.
+func (rt *Runtime) SetAgentEmail(id int64, email string) {
+	if a, ok := rt.AgentByID(id); ok {
+		a.setEmail(email)
+	}
+}
+
+// AgentOf is the agent of a member that sent the newest live sample; nil when none of the member's agents has
+// connected since the backend started. The address is compared as given, so pass it in lower case.
+func (rt *Runtime) AgentOf(email string) *AgentRT {
+	if email == "" {
+		return nil
+	}
+	for _, a := range rt.Agents() { // newest sample first
+		if a.Email() == email {
+			return a
+		}
+	}
+	return nil
 }
 
 // AgentByID returns the runtime of an agent that has connected since the backend started.
@@ -87,6 +125,15 @@ func (rt *Runtime) Agents() []*AgentRT {
 // defaultActiveWindow is how recent the last live sample of an agent must be for it to count as active.
 const defaultActiveWindow = 30 * time.Second
 
+// Active says whether the agent sent a live sample recently.
+func (rt *Runtime) Active(a *AgentRT) bool {
+	window := rt.ActiveWindow
+	if window <= 0 {
+		window = defaultActiveWindow
+	}
+	return time.Since(a.Live.Updated()) <= window
+}
+
 // Followed is the agent a request without an explicit agent shows: among the agents with a live sample in the last
 // 30 seconds the one with the lowest id, so that two agents driving at the same time do not make the view jump;
 // without an active agent the one with the newest sample. Nil when no agent has connected. It stands in until a
@@ -96,14 +143,9 @@ func (rt *Runtime) Followed() *AgentRT {
 	if len(list) == 0 {
 		return nil
 	}
-	window := rt.ActiveWindow
-	if window <= 0 {
-		window = defaultActiveWindow
-	}
-	now := time.Now()
 	var best *AgentRT
 	for _, a := range list {
-		if now.Sub(a.Live.Updated()) <= window && (best == nil || a.ID < best.ID) {
+		if rt.Active(a) && (best == nil || a.ID < best.ID) {
 			best = a
 		}
 	}
@@ -113,7 +155,11 @@ func (rt *Runtime) Followed() *AgentRT {
 	return best
 }
 
-// Idle returns an engine without live data, for a team none of whose agents has connected yet.
+// NoAgent is the id of the engine without live data. It owns no overrides and no laps.
+const NoAgent int64 = -1
+
+// Idle returns an engine without live data, for a request that has no agent to show: a team none of whose agents has
+// connected yet, or a member without an agent. Its state has agent_id -1.
 func (rt *Runtime) Idle() *engine.Engine { return rt.idle }
 
 // Registry creates the runtimes on demand and is safe for concurrent use.
@@ -177,7 +223,7 @@ func (r *Registry) build(id int64) *Runtime {
 		return eng
 	}
 	rt := &Runtime{ID: id, Store: st, Cmds: cmds, Ingest: ing, log: r.Log, agents: map[int64]*AgentRT{},
-		idle: newEngine(ingest.AgentRef{}, &live.State{}), engines: newEngine}
+		idle: newEngine(ingest.AgentRef{ID: NoAgent}, &live.State{}), engines: newEngine}
 	ing.LiveFor = func(ref ingest.AgentRef) *live.State { return rt.Agent(ref).Live }
 	return rt
 }

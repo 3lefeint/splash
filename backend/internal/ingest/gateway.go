@@ -51,6 +51,8 @@ func (g *Gateway) log() *slog.Logger {
 type AgentRef struct {
 	ID   int64
 	Name string
+	// Email is the member the agent belongs to; empty for none.
+	Email string
 }
 
 type agentKey struct{}
@@ -115,7 +117,7 @@ func (g *Gateway) team(r *http.Request) (team int64, agent AgentRef, key string,
 				g.log().Warn("agent last seen", "err", err)
 			}
 			g.log().Debug("agent token accepted", "agent_id", a.ID, "team", a.TeamID)
-			return a.TeamID, AgentRef{ID: a.ID, Name: a.Name}, "agent:" + strconv.FormatInt(a.ID, 10), 0
+			return a.TeamID, AgentRef{ID: a.ID, Name: a.Name, Email: a.Email}, "agent:" + strconv.FormatInt(a.ID, 10), 0
 		}
 	}
 	// Without a Verifier an empty fallback means dev mode and accepts any token. With one, the request has passed

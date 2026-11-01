@@ -602,6 +602,37 @@ func runTeamSuite(t *testing.T, db DB) {
 		}
 	})
 
+	t.Run("an agent can be tied to a member and released again", func(t *testing.T) {
+		ag, err := db.CreateAgent(ctx, "owned", first.ID, HashToken("owned"))
+		if err != nil || ag.Email != "" {
+			t.Fatalf("new agent %+v err=%v", ag, err)
+		}
+		if err := db.SetAgentEmail(ctx, ag.ID, "driver@example.com"); err != nil {
+			t.Fatal(err)
+		}
+		got, ok, _ := db.AgentByTokenHash(ctx, HashToken("owned"))
+		if !ok || got.Email != "driver@example.com" {
+			t.Fatalf("by token %+v", got)
+		}
+		list, _ := db.Agents(ctx)
+		found := false
+		for _, a := range list {
+			found = found || (a.ID == ag.ID && a.Email == "driver@example.com")
+		}
+		if !found {
+			t.Fatalf("agents %+v", list)
+		}
+		if err := db.SetAgentEmail(ctx, ag.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		if got, _, _ = db.AgentByTokenHash(ctx, HashToken("owned")); got.Email != "" {
+			t.Fatalf("after release %+v", got)
+		}
+		if err := db.SetAgentEmail(ctx, 99999, "x@example.com"); err != ErrNoAgent {
+			t.Fatalf("unknown agent: %v", err)
+		}
+	})
+
 	t.Run("a lap keeps the agent that delivered it first", func(t *testing.T) {
 		st := db.ForTeam(first.ID)
 		one, err := db.CreateAgent(ctx, "lap-one", first.ID, HashToken("lap-one"))

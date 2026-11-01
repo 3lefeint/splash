@@ -83,65 +83,78 @@ func (a *API) Start(ctx context.Context) {
 	a.mu.Unlock()
 }
 
-// followAgent is the agent selector of a request without ?agent=, see teams.Runtime.Followed. It is a stand-in until a
-// browser is tied to its own agent by e-mail address.
-const followAgent int64 = -1
+// Agent selectors of a request. A request names an agent with ?agent=<id>. Without it a member sees their own agent,
+// the one of their address that sent the newest sample; a request without an address (authentication switched off)
+// follows one active agent of the team, see teams.Runtime.Followed.
+const (
+	followAgent int64 = -1
+	mineAgent   int64 = -2
+)
 
-type hubKey struct{ team, agent int64 }
-
-// agentParam reads ?agent=; without it the request follows the most recently active agent of the team.
-func agentParam(r *http.Request) (int64, error) {
-	v := r.URL.Query().Get("agent")
-	if v == "" {
-		return followAgent, nil
-	}
-	id, err := strconv.ParseInt(v, 10, 64)
-	if err != nil || id < 0 {
-		return 0, errors.New("agent must be a number")
-	}
-	return id, nil
+type hubKey struct {
+	team, agent int64
+	email       string // only for mineAgent
 }
 
-// engineOf returns the engine of the agent a request is about. ok is false for an agent that has not connected since
-// the backend started. A team none of whose agents has connected gets an engine without live data.
-func engineOf(rt *teams.Runtime, agent int64) (eng *engine.Engine, ok bool) {
-	if agent == followAgent {
-		if a := rt.Followed(); a != nil {
-			return a.Engine, true
+// agentSel reads which agent a request is about.
+func agentSel(r *http.Request) (sel int64, email string, err error) {
+	if v := r.URL.Query().Get("agent"); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || id < 0 {
+			return 0, "", errors.New("agent must be a number")
 		}
-		return rt.Idle(), true
+		return id, "", nil
 	}
-	ag, ok := rt.AgentByID(agent)
-	if !ok {
-		return nil, false
+	if me, _ := IdentityOf(r.Context()); me.Email != "" {
+		return mineAgent, me.Email, nil
 	}
-	return ag.Engine, true
+	return followAgent, "", nil
 }
 
-// engine resolves the agent of a request and its engine, or writes the error response and returns false.
-func (a *API) engine(w http.ResponseWriter, r *http.Request, rt *teams.Runtime) (agent int64, eng *engine.Engine, ok bool) {
-	agent, err := agentParam(r)
+// engineOf returns the engine and agent a selector stands for. ag is nil when there is nothing to show: the engine
+// without live data is returned then (a team without a connected agent, a member without an agent of their own). ok is
+// false for an explicit agent that has not connected since the backend started.
+func engineOf(rt *teams.Runtime, sel int64, email string) (eng *engine.Engine, ag *teams.AgentRT, ok bool) {
+	switch sel {
+	case followAgent:
+		ag = rt.Followed()
+	case mineAgent:
+		ag = rt.AgentOf(email)
+	default:
+		if ag, ok = rt.AgentByID(sel); !ok {
+			return nil, nil, false
+		}
+	}
+	if ag == nil {
+		return rt.Idle(), nil, true
+	}
+	return ag.Engine, ag, true
+}
+
+// engine resolves the agent of a request, or writes the error response and returns false.
+func (a *API) engine(w http.ResponseWriter, r *http.Request, rt *teams.Runtime) (sel int64, email string, eng *engine.Engine, ag *teams.AgentRT, ok bool) {
+	sel, email, err := agentSel(r)
 	if err != nil {
 		fail(w, http.StatusBadRequest, err.Error())
-		return 0, nil, false
+		return 0, "", nil, nil, false
 	}
-	eng, ok = engineOf(rt, agent)
+	eng, ag, ok = engineOf(rt, sel, email)
 	if !ok {
 		fail(w, http.StatusNotFound, "unknown agent")
-		return 0, nil, false
+		return 0, "", nil, nil, false
 	}
-	return agent, eng, true
+	return sel, email, eng, ag, true
 }
 
 // hub returns the SSE hub of a team and agent selector and starts it on first use.
-func (a *API) hub(rt *teams.Runtime, agent int64) *Hub {
+func (a *API) hub(rt *teams.Runtime, sel int64, email string) *Hub {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	key := hubKey{rt.ID, agent}
+	key := hubKey{team: rt.ID, agent: sel, email: email}
 	h, ok := a.hubs[key]
 	if !ok {
 		h = &Hub{Compute: func(ctx context.Context) (engine.State, error) {
-			eng, ok := engineOf(rt, agent)
+			eng, _, ok := engineOf(rt, sel, email)
 			if !ok {
 				return engine.State{}, errors.New("unknown agent")
 			}
@@ -160,6 +173,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	h := func(pattern string, fn http.HandlerFunc) { mux.HandleFunc(pattern, a.guard(pattern, fn)) }
 	h("GET /api/me", a.getMe)
 	h("GET /api/state", a.getState)
+	h("GET /api/agents", a.getAgents)
 	h("GET /api/stream", a.stream)
 	h("GET /api/params", a.getParams)
 	h("PUT /api/params", a.putParams)
@@ -225,7 +239,7 @@ func (a *API) getState(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	_, eng, ok := a.engine(w, r, rt)
+	_, _, eng, _, ok := a.engine(w, r, rt)
 	if !ok {
 		return
 	}
@@ -346,11 +360,15 @@ func (a *API) putPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, rows)
 }
 
-// overrideAgent is the agent whose overrides a request reads or writes: the one named by ?agent=, otherwise the one
-// the request follows. Overrides of a team without any agent belong to agent 0.
+// overrideAgent is the agent whose overrides a request reads or writes, see agentSel. Without an agent there is
+// nothing to read and nothing to write.
 func (a *API) overrideAgent(w http.ResponseWriter, r *http.Request, rt *teams.Runtime) (int64, bool) {
-	_, eng, ok := a.engine(w, r, rt)
+	_, _, eng, ag, ok := a.engine(w, r, rt)
 	if !ok {
+		return 0, false
+	}
+	if ag == nil && isWrite(r.Method) {
+		fail(w, http.StatusConflict, "there is no agent to set an override for")
 		return 0, false
 	}
 	return eng.AgentID, true
@@ -436,11 +454,11 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
-	agent, eng, ok := a.engine(w, r, rt)
+	sel, email, eng, _, ok := a.engine(w, r, rt)
 	if !ok {
 		return
 	}
-	ch, cancel := a.hub(rt, agent).Subscribe()
+	ch, cancel := a.hub(rt, sel, email).Subscribe()
 	defer cancel()
 
 	h := w.Header()

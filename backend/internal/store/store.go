@@ -21,9 +21,11 @@ type Team struct {
 
 // Agent is a registered agent token. Only the hash of the token is stored.
 type Agent struct {
-	ID      int64
-	Name    string
-	TeamID  int64
+	ID     int64
+	Name   string
+	TeamID int64
+	// Email is the member the agent belongs to (lower case); empty for an agent without an owner.
+	Email   string
 	Revoked bool
 	// LastSeen is when the agent last connected; nil if it never did.
 	LastSeen *time.Time
@@ -48,6 +50,9 @@ type AuditEntry struct {
 
 // ErrExists is returned when a team name or a token hash is already taken.
 var ErrExists = errors.New("already exists")
+
+// ErrNoAgent is returned when an agent does not exist.
+var ErrNoAgent = errors.New("unknown agent")
 
 // ErrNoTeam is returned when a member is assigned to a team that does not exist.
 var ErrNoTeam = errors.New("unknown team")
@@ -85,6 +90,9 @@ type Directory interface {
 	CreateTeam(ctx context.Context, name string) (Team, error)
 	// CreateAgent registers the hash of a token for a team and returns ErrExists when the hash is known.
 	CreateAgent(ctx context.Context, name string, teamID int64, tokenHash []byte) (Agent, error)
+	// SetAgentEmail ties an agent to the member with this address; an empty address removes the tie. It returns
+	// ErrNoAgent for an unknown agent.
+	SetAgentEmail(ctx context.Context, id int64, email string) error
 	// RevokeAgent makes the token of an agent stop working.
 	RevokeAgent(ctx context.Context, id int64) error
 	// AgentByTokenHash finds the agent whose token has this hash, revoked or not; ok is false when none matches.
