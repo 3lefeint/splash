@@ -693,6 +693,14 @@ func (p *Postgres) CreateAgent(ctx context.Context, name string, teamID int64, t
 	return a, err
 }
 
+func (p *Postgres) SetAgentEmail(ctx context.Context, id int64, email string) error {
+	tag, err := p.pool.Exec(ctx, `UPDATE agents SET email = $2 WHERE id = $1`, id, email)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNoAgent
+	}
+	return err
+}
+
 func (p *Postgres) RevokeAgent(ctx context.Context, id int64) error {
 	_, err := p.pool.Exec(ctx, `UPDATE agents SET revoked = true WHERE id = $1`, id)
 	return err
@@ -700,8 +708,8 @@ func (p *Postgres) RevokeAgent(ctx context.Context, id int64) error {
 
 func (p *Postgres) AgentByTokenHash(ctx context.Context, hash []byte) (Agent, bool, error) {
 	var a Agent
-	err := p.pool.QueryRow(ctx, `SELECT id, name, team_id, revoked, last_seen FROM agents WHERE token_hash = $1`, hash).
-		Scan(&a.ID, &a.Name, &a.TeamID, &a.Revoked, &a.LastSeen)
+	err := p.pool.QueryRow(ctx, `SELECT id, name, team_id, email, revoked, last_seen FROM agents WHERE token_hash = $1`, hash).
+		Scan(&a.ID, &a.Name, &a.TeamID, &a.Email, &a.Revoked, &a.LastSeen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Agent{}, false, nil
 	}
@@ -779,7 +787,7 @@ func (p *Postgres) DeleteMember(ctx context.Context, email string) error {
 }
 
 func (p *Postgres) Agents(ctx context.Context) ([]Agent, error) {
-	rows, err := p.pool.Query(ctx, `SELECT id, name, team_id, revoked, last_seen FROM agents ORDER BY id`)
+	rows, err := p.pool.Query(ctx, `SELECT id, name, team_id, email, revoked, last_seen FROM agents ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -787,7 +795,7 @@ func (p *Postgres) Agents(ctx context.Context) ([]Agent, error) {
 	out := []Agent{}
 	for rows.Next() {
 		var a Agent
-		if err := rows.Scan(&a.ID, &a.Name, &a.TeamID, &a.Revoked, &a.LastSeen); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.TeamID, &a.Email, &a.Revoked, &a.LastSeen); err != nil {
 			return nil, err
 		}
 		out = append(out, a)

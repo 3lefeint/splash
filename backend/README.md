@@ -86,7 +86,8 @@ key). Without the two variables authentication is off: a warning is logged, ever
 |---|---|
 | `GET/POST /api/admin/teams` | list teams, add a team `{name}` |
 | `GET/PUT/DELETE /api/admin/members` | list members, add or move a member `{email, team_id, is_admin}`, remove `?email=` |
-| `GET/POST /api/admin/agents` | list agents, create one `{name, team_id}`; the reply carries the token, shown only once |
+| `GET/POST /api/admin/agents` | list agents, create one `{name, team_id, email}`; the reply carries the token, shown only once. `email` is optional and must be a member of the team |
+| `PUT /api/admin/agents/{id}` | tie an agent to a member of its team `{email}`, or release it with an empty address |
 | `POST /api/admin/agents/{id}/revoke` | make an agent token stop working |
 
 The first administrator is named in `SPLASH_ADMIN_EMAILS`; the addresses are applied at every start. An administrator
@@ -172,11 +173,12 @@ Read and write endpoints have no authentication; only the agent socket uses the 
 
 | endpoint | meaning |
 |---|---|
-| `GET /api/state` | the complete computed state (fuel model, stops, saving target, stint plan, class opponents) of one agent: `?agent=<id>` names it, without it one agent with a live sample in the last 30 seconds is used, the lowest id if several, else the one with the newest sample (404 for an agent that has not connected since the backend started) |
+| `GET /api/agents` | the non-revoked agents of the team with `mine`, `active`, last sample and session, for choosing whose state to look at; no addresses |
+| `GET /api/state` | the complete computed state (fuel model, stops, saving target, stint plan, class opponents) of one agent: `?agent=<id>` names it, without it the member's own agent is used, the one of their address with the newest sample, and a member without an agent gets an empty state with `agent_id` -1. Without authentication one agent with a live sample in the last 30 seconds is used, the lowest id if several (404 for an agent that has not connected since the backend started) |
 | `GET /api/stream` | the same state as server-sent events (`event: state`), at most once per second and only when it changed; `?agent=` as for the state |
 | `GET /api/params`, `GET/PUT /api/params?track=&car=` | training parameters per track and car; the set matching the running session is used, defaults apply otherwise. `tyre_change` is 17 s (`DefaultTyreChange`) where no set exists or the value is 0, which counts as unset; every stop plan and rejoin calculation uses that resolved value. The lap time model settings `fit_min_laps` (3 to 20, default 5), `fit_slow_percent` (2 to 30, default 8), `fit_skip_fcy` and `fit_skip_wet` (default true) are part of the set: unset values read as the defaults, values out of range are answered with 400 |
 | `GET/PUT /api/stint-plan` | the stint plan of the team, a list of `{driver, duration}`, written as a whole |
-| `GET /api/overrides`, `PUT/DELETE /api/overrides/{key}` | manual values for `fuel` and `fuel_per_lap` of one agent (`?agent=` as for the state); an override ends by itself once the live value matches it again |
+| `GET /api/overrides`, `PUT/DELETE /api/overrides/{key}` | manual values for `fuel` and `fuel_per_lap` of one agent (`?agent=` as for the state; writing without an agent is answered with 409); an override ends by itself once the live value matches it again |
 
 ## Lap time model
 

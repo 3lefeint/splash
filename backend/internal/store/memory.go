@@ -603,6 +603,17 @@ func (m *Memory) CreateAgent(_ context.Context, name string, teamID int64, token
 	return a.Agent, nil
 }
 
+func (m *Memory) SetAgentEmail(_ context.Context, id int64, email string) error {
+	m.smu.Lock()
+	defer m.smu.Unlock()
+	a, ok := m.agents[id]
+	if !ok {
+		return ErrNoAgent
+	}
+	a.Email = email
+	return nil
+}
+
 func (m *Memory) RevokeAgent(_ context.Context, id int64) error {
 	m.smu.Lock()
 	defer m.smu.Unlock()
