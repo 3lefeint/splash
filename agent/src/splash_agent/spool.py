@@ -5,8 +5,8 @@ import re
 from pathlib import Path
 
 
-def envelope(agent_id: str, role: str, session_id: str, type_: str, seq: int, et: float, payload: dict) -> dict:
-    return {"v": 1, "type": type_, "agent_id": agent_id, "role": role, "session_id": session_id,
+def envelope(agent_id: str, session_id: str, type_: str, seq: int, et: float, payload: dict) -> dict:
+    return {"v": 1, "type": type_, "agent_id": agent_id, "session_id": session_id,
             "seq": seq, "et": et, "payload": payload}
 
 
@@ -18,9 +18,9 @@ class Spool:
     again and the backend's ``ack`` decides what is resent.
     """
 
-    def __init__(self, directory: str | Path, agent_id: str, role: str):
+    def __init__(self, directory: str | Path, agent_id: str):
         self.directory = Path(directory)
-        self.agent_id, self.role = agent_id, role
+        self.agent_id = agent_id
         self.session_id: str | None = None
         self.last_seq = 0
         self.entries: list[tuple[int, str]] = []
@@ -51,7 +51,7 @@ class Spool:
         """Number a durable message, write it to disk and queue it for sending."""
         assert self._fh is not None and self.session_id is not None
         self.last_seq += 1
-        line = json.dumps(envelope(self.agent_id, self.role, self.session_id, type_, self.last_seq, et, payload),
+        line = json.dumps(envelope(self.agent_id, self.session_id, type_, self.last_seq, et, payload),
                           separators=(",", ":"))
         self._fh.write(line + "\n")
         self._fh.flush()
@@ -61,7 +61,7 @@ class Spool:
     def live(self, type_: str, et: float, payload: dict) -> str:
         """A live sample: not sequenced, carries the last durable seq."""
         assert self.session_id is not None
-        return json.dumps(envelope(self.agent_id, self.role, self.session_id, type_, self.last_seq, et, payload),
+        return json.dumps(envelope(self.agent_id, self.session_id, type_, self.last_seq, et, payload),
                           separators=(",", ":"))
 
     def hello(self, agent_version: str) -> str:
@@ -69,7 +69,7 @@ class Spool:
         payload = {"agent_version": agent_version}
         if self.entries:
             payload["resume_from_seq"] = self.entries[0][0]
-        return json.dumps(envelope(self.agent_id, self.role, self.session_id, "hello", 0, 0, payload),
+        return json.dumps(envelope(self.agent_id, self.session_id, "hello", 0, 0, payload),
                           separators=(",", ":"))
 
     def prune(self, acked: int) -> None:

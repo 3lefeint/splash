@@ -4,7 +4,7 @@ Agents send one JSON object per WebSocket text frame. The same objects, one per 
 The schema is [`../schema/messages.schema.json`](../schema/messages.schema.json); `ack` is the only backend to agent
 message.
 
-Every message carries an envelope: `v`, `type`, `agent_id`, `role`, `session_id`, `seq`, `et`, `payload`.
+Every message carries an envelope: `v`, `type`, `agent_id`, `session_id`, `seq`, `et`, `payload`. Agents of version 0.1 also sent `role` (`driver` or `spotter`); the backend still accepts it and ignores it.
 
 | type | sent by | content |
 |---|---|---|

@@ -20,7 +20,7 @@
       {@const stale = a.connected && sec > STALE}
       <li class:gone={!a.connected}>
         <span class="dot {!a.connected ? 'bad' : stale ? 'warn' : 'good'}"></span>
-        <span class="name"><b>{t(a.role === 'driver' ? 'agents.driver' : 'agents.spotter')}</b> {a.agent_id}</span>
+        <span class="name"><b>{a.agent_id}</b></span>
         <span class="muted small">
           {#if !a.connected}{t('agents.gone', { s: age(a.since) })}
           {:else if stale}{t('agents.stale', { s: sec })}

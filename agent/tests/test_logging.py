@@ -95,7 +95,6 @@ cf_client_id = "{CF_ID}"
 cf_client_secret = "{CF_SECRET}"
 [agent]
 id = "driver-pc"
-role = "driver"
 [log]
 level = "DEBUG"
 ''')
@@ -103,7 +102,7 @@ level = "DEBUG"
     with pytest.raises(SystemExit):
         agentmain.cli(["run", "--config", str(path)])
     err = capsys.readouterr().err
-    assert "starting: server=wss://splash.example.com:8443 agent=driver-pc role=driver cloudflare_client_id=set log_level=DEBUG" in err
+    assert "starting: server=wss://splash.example.com:8443 agent=driver-pc cloudflare_client_id=set log_level=DEBUG" in err
     for secret in (SPLASH_TOKEN, CF_SECRET, "urlpassword", "querysecret", "/v1/agent/ws"):
         assert secret not in err
 

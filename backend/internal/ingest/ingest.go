@@ -100,7 +100,6 @@ func (s *Server) agent(ref AgentRef) *agentIngest {
 type connStats struct {
 	start    time.Time
 	agent    string
-	role     string
 	ref      AgentRef // the agent the token belongs to; the zero value for the shared dev token
 	st       *agentIngest
 	msgs     int
@@ -173,11 +172,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		cs.msgs++
 		s.Log.Debug("frame", "team", s.TeamID, "type", msg.Type, "bytes", len(data), "seq", msg.Seq)
 		if cs.agent == "" {
-			cs.agent, cs.role = clip(msg.AgentID), msg.Role
-			s.Log.Info("agent connected", "team", s.TeamID, "agent", cs.agent, "role", cs.role, "agent_id", cs.ref.ID)
+			cs.agent = clip(msg.AgentID)
+			s.Log.Info("agent connected", "team", s.TeamID, "agent", cs.agent, "agent_id", cs.ref.ID)
 		}
 		if conn == nil && s.Cmds != nil {
-			conn = s.Cmds.Add(c, msg.Role, msg.AgentID, cs.ref.ID)
+			conn = s.Cmds.Add(c, msg.AgentID, cs.ref.ID)
 		}
 		if conn != nil {
 			s.Cmds.Seen(conn, msg.SessionID)

@@ -11,7 +11,7 @@ FIELD = [{"id": 0, "name": b"me", "driver": b"a", "player": True, "control": 0, 
 
 
 def make_cfg(tmp_path, raw="", record=""):
-    return Config("ws://x", "", "driver-pc", "driver", str(tmp_path / "spool"), record, 5, 2, raw)
+    return Config("ws://x", "", "driver-pc", str(tmp_path / "spool"), record, 5, 2, raw)
 
 
 def drive(agent, s, t):

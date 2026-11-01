@@ -40,7 +40,6 @@ type Status struct {
 
 // Conn is a connected agent that commands can be written to.
 type Conn struct {
-	Role    string
 	AgentID string // the id the agent calls itself in its messages
 	// Token is the registered agent whose token the connection used; 0 for the shared dev token.
 	Token int64
@@ -59,7 +58,6 @@ type AgentStatus struct {
 	AgentID string `json:"agent_id"`
 	// TokenID is the registered agent whose token the agent used; 0 for the shared dev token.
 	TokenID int64  `json:"token_id"`
-	Role    string `json:"role"`
 	Version string `json:"version,omitempty"`
 	// Outdated is true when the version is older than the minimum the backend asks for.
 	Outdated  bool      `json:"outdated,omitempty"`
@@ -88,11 +86,11 @@ func New() *Hub {
 }
 
 // Add registers a connection; call Remove when it ends.
-func (h *Hub) Add(ws *websocket.Conn, role, agentID string, token int64) *Conn {
+func (h *Hub) Add(ws *websocket.Conn, agentID string, token int64) *Conn {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	now := h.now()
-	c := &Conn{Role: role, AgentID: agentID, Token: token, at: now, ws: ws}
+	c := &Conn{AgentID: agentID, Token: token, at: now, ws: ws}
 	key := agentKey{token, agentID}
 	h.conns[c] = struct{}{}
 	h.cur[key] = c
@@ -101,7 +99,7 @@ func (h *Hub) Add(ws *websocket.Conn, role, agentID string, token int64) *Conn {
 		a = &AgentStatus{AgentID: agentID, TokenID: token}
 		h.agents[key] = a
 	}
-	a.Role, a.Connected, a.Since, a.LastData = role, true, now, now
+	a.Connected, a.Since, a.LastData = true, now, now
 	return c
 }
 
@@ -138,7 +136,7 @@ func (h *Hub) SetVersion(c *Conn, version string) {
 	}
 }
 
-// Agents lists the agents seen since the backend started, drivers first.
+// Agents lists the agents seen since the backend started, by registered agent.
 func (h *Hub) Agents() []AgentStatus {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -149,9 +147,6 @@ func (h *Hub) Agents() []AgentStatus {
 		out = append(out, st)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Role != out[j].Role {
-			return out[i].Role == "driver"
-		}
 		if out[i].TokenID != out[j].TokenID {
 			return out[i].TokenID < out[j].TokenID
 		}

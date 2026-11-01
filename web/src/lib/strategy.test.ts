@@ -45,8 +45,8 @@ describe('alerts', () => {
   it('reports damage, penalties and agents that are gone', () => {
     const car = { dent_max: 2, penalties: 1, overheating: true } as State['car'];
     const agents = [
-      { agent_id: 'driver-pc', role: 'driver' as const, connected: true, since: '', last_data: '' },
-      { agent_id: 'spotter-pc', role: 'spotter' as const, connected: false, since: '', last_data: '' },
+      { agent_id: 'driver-pc', connected: true, since: '', last_data: '' },
+      { agent_id: 'spotter-pc', connected: false, since: '', last_data: '' },
     ];
     expect(ids({ car, agents })).toEqual(['damage', 'overheating', 'penalties', 'agent-spotter-pc']);
     expect(run({ car: { dent_max: 1 } as State['car'] })[0]).toMatchObject({ level: 'warn', key: 'alert.damage' });

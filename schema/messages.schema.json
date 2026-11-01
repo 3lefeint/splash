@@ -30,7 +30,6 @@
         "v",
         "type",
         "agent_id",
-        "role",
         "session_id",
         "seq",
         "et",
@@ -60,7 +59,8 @@
           "enum": [
             "driver",
             "spotter"
-          ]
+          ],
+          "description": "Sent by agents of version 0.1 only; the backend ignores it."
         },
         "session_id": {
           "type": "string",

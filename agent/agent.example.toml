@@ -7,10 +7,8 @@ cf_client_id = ""
 cf_client_secret = ""
 
 [agent]
-# Stable id of this installation, for example "driver-pc" or "spotter-pc".
-id = "driver-pc"
-# "driver" or "spotter"; informational, telemetry is sent whenever this PC is in a car.
-role = "driver"
+# Stable id of this installation, for example "driver-pc". Leave it empty to use the name of this PC.
+id = ""
 # Durable messages (laps, events) are kept here until the backend acknowledged them.
 spool_dir = "spool"
 # Optional: write every message to this NDJSON file (about 2-3 GB per 24 hours); usable with splash-replay.

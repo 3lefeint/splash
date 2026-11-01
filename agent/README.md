@@ -5,8 +5,8 @@ poll rate and streams them to the backend over WebSocket.
 
 - Scoring (whole field) is read at `scoring_hz` (default 2), telemetry of the car this PC drives at `telemetry_hz`
   (default 5). Both are limited to 10 Hz.
-- Telemetry is sent whenever this PC is in a car (`mInRealtime`), so the same agent works for the driver and the
-  spotter PC at the driver change.
+- Telemetry is sent whenever this PC is in a car (`mInRealtime`). All agents are the same: there is no role to
+  configure. The backend knows an agent by its token.
 - The agent derives laps and pit events from the scoring updates of all cars. They are durable: written to a spool file
   and resent after a connection drop until the backend acknowledged them. Scoring and telemetry are live samples and
   are never resent.
@@ -21,7 +21,8 @@ Message format: see [`../docs/wire-format.md`](../docs/wire-format.md).
 
 1. Enable `rFactor2SharedMemoryMapPlugin64.dll` in rFactor 2.
 2. `pip install .` in this directory (Python 3.11 or newer).
-3. Copy `agent.example.toml` to `agent.toml` and set the server URL, the token and an `id` for this PC.
+3. Copy `agent.example.toml` to `agent.toml` and set the server URL and the token. The `id` of this PC defaults to its
+   name.
 4. `splash-agent run --config agent.toml`
 
 With the Cloudflare Access in front of the backend, give the agent its own service token in `agent.toml`
@@ -61,7 +62,7 @@ is therefore kept at WARNING whatever the agent level is.
 
 | level | message | when |
 |---|---|---|
-| INFO | `splash-agent <version> starting: server=<scheme://host:port> agent=<id> role=<role> cloudflare_client_id=<set/not set> log_level=<level> spool=<dir>` | start |
+| INFO | `splash-agent <version> starting: server=<scheme://host:port> agent=<id> cloudflare_client_id=<set/not set> log_level=<level> spool=<dir>` | start |
 | INFO | `waiting for rFactor 2 and the shared memory plugin (<why>)`, `plugin buffers found` | the plugin buffers are missing, then there (once per change) |
 | INFO | `pit menu buffer not available, trying again every 10 s`, `pit menu buffer opened` | optional buffer |
 | INFO | `session changed: <new> (was <old>)` | the game session changed |

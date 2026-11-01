@@ -40,7 +40,7 @@ class Agent:
         self._open_hw_control = open_hw_control or reader.open_hw_control
         self._hw: reader.HWControl | None = None
         self._command_task: asyncio.Task | None = None
-        self.spool = Spool(cfg.spool_dir, cfg.agent_id, cfg.role)
+        self.spool = Spool(cfg.spool_dir, cfg.agent_id)
         self.names = SessionNames(cfg.spool_dir)
         self.tracker = Tracker()
         self.link_factory = link_factory or (lambda spool: Link(cfg.url, cfg.token, spool, cfg.cf_client_id, cfg.cf_client_secret))
@@ -336,8 +336,8 @@ def _server_summary(url: str) -> str:
 
 def cmd_run(args) -> int:
     cfg = load(args.config)
-    log.info("splash-agent %s starting: server=%s agent=%s role=%s cloudflare_client_id=%s log_level=%s spool=%s",
-             __version__, _server_summary(cfg.url), cfg.agent_id, cfg.role, "set" if cfg.cf_client_id else "not set",
+    log.info("splash-agent %s starting: server=%s agent=%s cloudflare_client_id=%s log_level=%s spool=%s",
+             __version__, _server_summary(cfg.url), cfg.agent_id, "set" if cfg.cf_client_id else "not set",
              cfg.log_level.upper(), cfg.spool_dir)
     scoring, telemetry = _open_buffers()
     agent = Agent(cfg, scoring, telemetry,
