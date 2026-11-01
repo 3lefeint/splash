@@ -20,7 +20,7 @@ def validate(line):
 
 
 def make_agent(tmp_path, scoring, telemetry):
-    cfg = Config(url="ws://x", token="", agent_id="driver-pc", role="driver", spool_dir=str(tmp_path / "spool"),
+    cfg = Config(url="ws://x", token="", agent_id="driver-pc", spool_dir=str(tmp_path / "spool"),
                  record_file="", telemetry_hz=5, scoring_hz=2)
     s, t = fakes.FakeBuffer(scoring), fakes.FakeBuffer(telemetry)
     agent = Agent(cfg, s, t, link_factory=fakes.FakeLink)
@@ -100,7 +100,7 @@ def test_new_session_starts_a_fresh_spool(tmp_path):
 
 def test_record_file_gets_every_message(tmp_path):
     rec = tmp_path / "rec.ndjson"
-    cfg = Config("ws://x", "", "driver-pc", "driver", str(tmp_path / "spool"), str(rec), 5, 2)
+    cfg = Config("ws://x", "", "driver-pc", str(tmp_path / "spool"), str(rec), 5, 2)
     agent = Agent(cfg, fakes.FakeBuffer(fakes.scoring(FIELD)), fakes.FakeBuffer(fakes.telemetry([{"id": 0}])),
                   link_factory=fakes.FakeLink)
     agent.poll_scoring()

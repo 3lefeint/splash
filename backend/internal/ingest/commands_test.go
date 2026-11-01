@@ -87,7 +87,7 @@ func TestAgentsAreListedWithVersionFreshnessAndDisconnect(t *testing.T) {
 	c := dial(t, url, "")
 	send(t, c, "driver-pc", 0, "hello", `{"agent_version":"0.3.1"}`)
 	list := srv.Cmds.Agents()
-	if len(list) != 1 || list[0].AgentID != "driver-pc" || list[0].Role != "driver" || list[0].Version != "0.3.1" ||
+	if len(list) != 1 || list[0].AgentID != "driver-pc" || list[0].Version != "0.3.1" ||
 		!list[0].Connected || list[0].SessionID != "s1" || list[0].LastData.IsZero() {
 		t.Fatalf("%+v", list)
 	}

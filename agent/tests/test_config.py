@@ -8,7 +8,6 @@ url = "ws://host:8080/v1/agent/ws"
 token = "t"
 [agent]
 id = "driver-pc"
-role = "spotter"
 """
 
 
@@ -20,14 +19,12 @@ def write(tmp_path, text):
 
 def test_valid_with_defaults(tmp_path):
     c = load(write(tmp_path, VALID))
-    assert (c.url, c.token, c.agent_id, c.role) == ("ws://host:8080/v1/agent/ws", "t", "driver-pc", "spotter")
+    assert (c.url, c.token, c.agent_id) == ("ws://host:8080/v1/agent/ws", "t", "driver-pc")
     assert (c.telemetry_hz, c.scoring_hz, c.spool_dir, c.record_file) == (5, 2, "spool", "")
 
 
 @pytest.mark.parametrize("text,msg", [
     (VALID.replace("ws://", "http://"), "ws://"),
-    (VALID.replace('id = "driver-pc"', ""), "agent.id"),
-    (VALID.replace("spotter", "pilot"), "role"),
     (VALID + "[poll]\ntelemetry_hz = 60\n", "telemetry_hz"),
     (VALID + "[poll]\nscoring_hz = 0\n", "scoring_hz"),
     ("not toml [", "agent.toml"),
@@ -35,6 +32,16 @@ def test_valid_with_defaults(tmp_path):
 def test_invalid(tmp_path, text, msg):
     with pytest.raises(ConfigError, match=msg):
         load(write(tmp_path, text))
+
+
+def test_the_agent_id_defaults_to_the_name_of_the_pc(tmp_path, monkeypatch):
+    monkeypatch.setattr("socket.gethostname", lambda: "sim-pc")
+    assert load(write(tmp_path, VALID.replace('id = "driver-pc"', 'id = ""'))).agent_id == "sim-pc"
+    assert load(write(tmp_path, VALID.replace('id = "driver-pc"', ""))).agent_id == "sim-pc"
+
+
+def test_a_role_in_an_old_config_is_ignored(tmp_path):
+    assert load(write(tmp_path, VALID + 'role = "spotter"\n')).agent_id == "driver-pc"
 
 
 def test_missing_file(tmp_path):

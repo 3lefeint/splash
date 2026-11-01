@@ -55,6 +55,19 @@ func TestDecodeRejects(t *testing.T) {
 	}
 }
 
+// Agents of version 0.1 send a role and newer ones do not; both are fine, the role is ignored.
+func TestDecodeRoleIsOptional(t *testing.T) {
+	for name, data := range map[string]string{
+		"driver":  `{"v":1,"type":"hello","agent_id":"a","role":"driver","session_id":"s","seq":0,"et":0,"payload":{"agent_version":"1"}}`,
+		"spotter": `{"v":1,"type":"hello","agent_id":"a","role":"spotter","session_id":"s","seq":0,"et":0,"payload":{"agent_version":"1"}}`,
+		"none":    `{"v":1,"type":"hello","agent_id":"a","session_id":"s","seq":0,"et":0,"payload":{"agent_version":"1"}}`,
+	} {
+		if _, err := Decode([]byte(data)); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
 func TestDecodeScoring(t *testing.T) {
 	m, err := Decode(msg("scoring", `{"track":"t","session_type":"race","end_et":86400,"vehicles":[{"car_id":1,"vehicle_name":"v","driver":"d","vehicle_class":"c","place":1,"laps":3,"last_lap":null}]}`))
 	if err != nil {

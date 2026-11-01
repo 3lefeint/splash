@@ -43,7 +43,7 @@ async def until(cond, timeout=5.0):
 
 
 def make_spool(tmp_path, n=0):
-    s = Spool(tmp_path, "driver-pc", "driver")
+    s = Spool(tmp_path, "driver-pc")
     s.open("sess")
     for i in range(n):
         s.append("lap", float(i), {"car_id": 0, "vehicle_name": "v", "lap": i + 1, "in_lap": False, "out_lap": False})

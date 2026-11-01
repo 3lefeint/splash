@@ -24,10 +24,11 @@ const (
 
 // Envelope is the common part of every agent message.
 type Envelope struct {
-	V         int             `json:"v"`
-	Type      string          `json:"type"`
-	AgentID   string          `json:"agent_id"`
-	Role      string          `json:"role"`
+	V       int    `json:"v"`
+	Type    string `json:"type"`
+	AgentID string `json:"agent_id"`
+	// Role is sent by agents of version 0.1 and ignored; newer agents leave it out.
+	Role      string          `json:"role,omitempty"`
 	SessionID string          `json:"session_id"`
 	Seq       int64           `json:"seq"`
 	ET        float64         `json:"et"`
@@ -222,7 +223,7 @@ func Decode(data []byte) (Message, error) {
 	if env.AgentID == "" || env.SessionID == "" {
 		return Message{}, errors.New("agent_id and session_id are required")
 	}
-	if env.Role != "driver" && env.Role != "spotter" {
+	if env.Role != "" && env.Role != "driver" && env.Role != "spotter" {
 		return Message{}, fmt.Errorf("invalid role %q", env.Role)
 	}
 	if env.Seq < 0 || env.ET < 0 {

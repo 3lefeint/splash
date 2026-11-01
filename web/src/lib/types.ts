@@ -198,7 +198,6 @@ export interface AgentStatus {
   agent_id: string;
   /** The registered agent whose token this agent used; 0 for the shared token. */
   token_id?: number;
-  role: 'driver' | 'spotter';
   version?: string;
   /** Older than the minimum version the backend asks for. */
   outdated?: boolean;

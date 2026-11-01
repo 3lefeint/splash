@@ -79,6 +79,7 @@
 - The backend connects with a pool of 10 connections, configurable with `SPLASH_DB_MAX_CONNS`
 - The environments are called `splash` (prod) and `splash-stg` (staging): overlay `deploy/overlays/stg`, suffix `-stg`, Secrets `splash-stg-*`, database `splash_stg`
 - Prod and staging ingresses use the class `public`; the staging environment has no LAN host
+- Agents have no role any more: `agent.role` is gone from the configuration, the messages, the agent list and the command hub; the backend still accepts the role that agents of version 0.1 send and ignores it, and the agent id defaults to the name of the PC
 
 ### Fixed
 

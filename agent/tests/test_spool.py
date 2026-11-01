@@ -4,7 +4,7 @@ from splash_agent.spool import Spool
 
 
 def spool(tmp_path):
-    return Spool(tmp_path, "driver-pc", "driver")
+    return Spool(tmp_path, "driver-pc")
 
 
 def test_durable_messages_are_numbered_from_one(tmp_path):

@@ -205,10 +205,10 @@ class Race:
     def _env(self, type_: str, payload: dict, durable: bool = False) -> dict:
         if durable:
             self.seq += 1
-        return envelope(self.agent_id, "driver", self.session, type_, self.seq, round(self.et, 3), payload)
+        return envelope(self.agent_id, self.session, type_, self.seq, round(self.et, 3), payload)
 
     def hello(self) -> dict:
-        return envelope(self.agent_id, "driver", self.session, "hello", 0, 0.0, {"agent_version": f"{__version__}-sim"})
+        return envelope(self.agent_id, self.session, "hello", 0, 0.0, {"agent_version": f"{__version__}-sim"})
 
     @property
     def ours(self) -> Car:

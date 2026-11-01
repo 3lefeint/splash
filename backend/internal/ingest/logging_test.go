@@ -74,7 +74,7 @@ func TestConnectionSessionAndBacklogLines(t *testing.T) {
 		t.Log("\n" + log)
 	}
 	for _, want := range []string{
-		`level=INFO msg="agent connected" team=1 agent=a role=driver`,
+		`level=INFO msg="agent connected" team=1 agent=a agent_id=0`,
 		`level=INFO msg="session started" team=1 session=s1`,
 		`level=INFO msg="backlog resent" team=1 agent=a stored=1 duplicates=1`,
 		`level=INFO msg="agent disconnected" team=1 agent=a reason="closed by agent"`,

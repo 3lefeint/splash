@@ -1,5 +1,6 @@
 """Agent configuration from a TOML file."""
 
+import socket
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,7 +17,6 @@ class Config:
     url: str
     token: str
     agent_id: str
-    role: str
     spool_dir: str
     record_file: str
     telemetry_hz: float
@@ -42,8 +42,7 @@ def load(path: str | Path) -> Config:
     cfg = Config(
         url=str(server.get("url", "")),
         token=str(server.get("token", "")),
-        agent_id=str(agent.get("id", "")),
-        role=str(agent.get("role", "driver")),
+        agent_id=str(agent.get("id", "")).strip() or socket.gethostname(),
         spool_dir=str(agent.get("spool_dir", "spool")),
         record_file=str(agent.get("record_file", "")),
         telemetry_hz=float(poll.get("telemetry_hz", 5)),
@@ -55,16 +54,12 @@ def load(path: str | Path) -> Config:
     )
     if not cfg.url.startswith(("ws://", "wss://")):
         raise ConfigError("server.url must start with ws:// or wss://")
-    if not cfg.agent_id:
-        raise ConfigError("agent.id is required")
     try:
         parse_level(cfg.log_level)
     except ValueError as e:
         raise ConfigError(f"log.level: {e}") from None
     if bool(cfg.cf_client_id) != bool(cfg.cf_client_secret):
         raise ConfigError("server.cf_client_id and server.cf_client_secret must be set together")
-    if cfg.role not in ("driver", "spotter"):
-        raise ConfigError("agent.role must be driver or spotter")
     for name, hz in (("telemetry_hz", cfg.telemetry_hz), ("scoring_hz", cfg.scoring_hz)):
         if not 0.1 <= hz <= 10:
             raise ConfigError(f"poll.{name} must be between 0.1 and 10 (the game must not be disturbed)")
