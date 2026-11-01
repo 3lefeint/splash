@@ -67,6 +67,7 @@
 - Release flow with two tag series: `v*` builds the backend image, `agent-v*` publishes the Windows agent as a GitHub release with a SHA-256 checksum
 - Each lap stores the agent whose token delivered it (`laps.agent_id`), taken from the token and not from the agent id in the message
 - Live state, engine, SSE stream and overrides exist per agent instead of per team, so members who train at the same time, also in different sessions, no longer disturb each other; `/api/state`, `/api/stream` and `/api/overrides` take `?agent=<id>` and otherwise show the agent of the member's own address (an agent can be tied to a member in the admin API, `PUT /api/admin/agents/{id}`, or when it is created) or an empty state if the member has none, and one active agent when authentication is off; `GET /api/agents` lists the agents of the team for choosing; the state carries `agent_id` and `agent_name`
+- Pit requests and pit setups are sent to the requesting member's own agent (or one named with `?agent=` that belongs to them; an administrator may name any), the status of the last command is kept per agent, and the agent list marks agents older than `SPLASH_AGENT_MIN_VERSION` as outdated
 
 ### Changed
 

@@ -142,3 +142,31 @@ func TestAgentListShowsTheTeamsAgentsAndWhichAreMine(t *testing.T) {
 		t.Fatalf("the list leaks an address or another team's agent: %s", body)
 	}
 }
+
+// A pit command goes to the requesting member's own agent; nobody sends commands to somebody else's car.
+func TestPitCommandsGoToTheMembersOwnAgent(t *testing.T) {
+	r := newAuthRig(t)
+	ctx := context.Background()
+	mine, _ := r.db.CreateAgent(ctx, "mine", r.def.ID, store.HashToken("m"))
+	theirs, _ := r.db.CreateAgent(ctx, "theirs", r.def.ID, store.HashToken("t"))
+	r.db.SetAgentEmail(ctx, mine.ID, userA)
+	r.db.SetAgentEmail(ctx, theirs.ID, adminA)
+	rt := r.api.Teams.Get(r.def.ID)
+	feedAgent(rt.Agent(ingest.AgentRef{ID: mine.ID, Name: "mine", Email: userA}), "session-a", 100, 50)
+	feedAgent(rt.Agent(ingest.AgentRef{ID: theirs.ID, Name: "theirs", Email: adminA}), "session-b", 100, 30)
+
+	// neither agent has a connection, so a command for the right agent fails as "not connected" (409), not as forbidden
+	if code, body, _ := r.do(t, r.tok(userA), "POST", "/api/pit-request", ""); code != 409 || !strings.Contains(body, "not connected") {
+		t.Fatalf("own agent: %d %s", code, body)
+	}
+	if code, _, _ := r.do(t, r.tok(userA), "POST", "/api/pit-request?agent="+itoa(theirs.ID), ""); code != 403 {
+		t.Fatalf("somebody else's agent: %d, want 403", code)
+	}
+	if code, body, _ := r.do(t, r.tok(adminA), "POST", "/api/pit-request?agent="+itoa(mine.ID), ""); code != 409 || !strings.Contains(body, "not connected") {
+		t.Fatalf("an administrator may name any agent: %d %s", code, body)
+	}
+	r.db.SetMember(ctx, store.Member{Email: "new@example.com", TeamID: r.def.ID})
+	if code, body, _ := r.do(t, r.tok("new@example.com"), "POST", "/api/pit-request", ""); code != 409 || !strings.Contains(body, "no agent") {
+		t.Fatalf("member without an agent: %d %s", code, body)
+	}
+}

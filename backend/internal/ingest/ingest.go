@@ -177,7 +177,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.Log.Info("agent connected", "team", s.TeamID, "agent", cs.agent, "role", cs.role, "agent_id", cs.ref.ID)
 		}
 		if conn == nil && s.Cmds != nil {
-			conn = s.Cmds.Add(c, msg.Role, msg.AgentID)
+			conn = s.Cmds.Add(c, msg.Role, msg.AgentID, cs.ref.ID)
 		}
 		if conn != nil {
 			s.Cmds.Seen(conn, msg.SessionID)

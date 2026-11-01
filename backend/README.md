@@ -30,6 +30,7 @@ Postgres runs on an existing external VM. Configuration is done with environment
 | `SPLASH_RATE_WRITES_PER_MIN` | write requests a minute per identity, default 120, 0 = unlimited |
 | `SPLASH_RATE_CONNECTS_PER_MIN` | new SSE streams per identity and agent connections per agent a minute, default 30, 0 = unlimited |
 | `SPLASH_SSE_HEARTBEAT_SECONDS` | keep-alive interval of idle SSE streams, default 15, 0 = default |
+| `SPLASH_AGENT_MIN_VERSION` | the oldest agent version that counts as up to date, e.g. `0.2.0`; older agents are marked as outdated in the agent list. Empty marks none |
 | `SPLASH_WS_PING_SECONDS` | how often an agent connection is pinged, default 20 |
 | `SPLASH_WS_DEAD_AFTER_SECONDS` | an agent connection whose ping stays unanswered this long is closed, default 30 |
 | `SPLASH_LOG_LEVEL` | `debug`, `info`, `warn` or `error`; default `info`; anything else stops the start |

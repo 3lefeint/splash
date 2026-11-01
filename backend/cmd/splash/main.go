@@ -174,6 +174,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	reg.PingInterval, reg.DeadAfter = time.Duration(ping)*time.Second, time.Duration(dead)*time.Second
+	reg.MinAgentVersion = strings.TrimSpace(os.Getenv("SPLASH_AGENT_MIN_VERSION"))
 
 	a := api.New(reg)
 	a.Heartbeat = time.Duration(beat) * time.Second

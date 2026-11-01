@@ -811,9 +811,13 @@ func (a *API) applyPitSetup(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, msg)
 		return
 	}
-	id, err := rt.Cmds.Send(r.Context(), req.Name, req.Steps)
+	agent, ok := a.commandAgent(w, r, rt)
+	if !ok {
+		return
+	}
+	id, err := rt.Cmds.Send(r.Context(), agent, req.Name, req.Steps)
 	switch {
-	case errors.Is(err, commands.ErrNoDriver), errors.Is(err, commands.ErrBusy):
+	case errors.Is(err, commands.ErrNotConnected), errors.Is(err, commands.ErrBusy):
 		fail(w, http.StatusConflict, err.Error())
 	case err != nil:
 		serverError(w, err)
@@ -834,7 +838,25 @@ func (a *API) getMapProgress(w http.ResponseWriter, r *http.Request) {
 	fail(w, http.StatusNotFound, "no outline is being recorded")
 }
 
-// pitRequest toggles the pit request of the driven car through the driver agent.
+// commandAgent is the agent a command goes to: the requesting member's own, or one named with ?agent= that belongs to
+// them (an administrator may name any). Without authentication any agent may be named.
+func (a *API) commandAgent(w http.ResponseWriter, r *http.Request, rt *teams.Runtime) (int64, bool) {
+	_, _, _, ag, ok := a.engine(w, r, rt)
+	if !ok {
+		return 0, false
+	}
+	if ag == nil {
+		fail(w, http.StatusConflict, "there is no agent to send the command to")
+		return 0, false
+	}
+	if me, _ := IdentityOf(r.Context()); me.Email != "" && !me.IsAdmin && ag.Email() != me.Email {
+		fail(w, http.StatusForbidden, "the agent belongs to somebody else")
+		return 0, false
+	}
+	return ag.ID, true
+}
+
+// pitRequest toggles the pit request of the driven car through the agent of the requesting member.
 func (a *API) pitRequest(w http.ResponseWriter, r *http.Request) {
 	rt, ok := a.team(w, r)
 	if !ok {
@@ -844,9 +866,13 @@ func (a *API) pitRequest(w http.ResponseWriter, r *http.Request) {
 	if name == "" || len(name) > maxNameLen {
 		name = "pit request"
 	}
-	id, err := rt.Cmds.PitRequest(r.Context(), name)
+	agent, ok := a.commandAgent(w, r, rt)
+	if !ok {
+		return
+	}
+	id, err := rt.Cmds.PitRequest(r.Context(), agent, name)
 	switch {
-	case errors.Is(err, commands.ErrNoDriver), errors.Is(err, commands.ErrBusy):
+	case errors.Is(err, commands.ErrNotConnected), errors.Is(err, commands.ErrBusy):
 		fail(w, http.StatusConflict, err.Error())
 	case err != nil:
 		serverError(w, err)
