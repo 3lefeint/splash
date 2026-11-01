@@ -3,9 +3,9 @@
   import { fixed, signed } from '../lib/format';
   import { tileInfo } from '../lib/info.svelte';
   import { t } from '../lib/settings.svelte';
-  import { live } from '../lib/store';
+  import { view } from '../lib/view.svelte';
 
-  const w = $derived(live.state?.weather);
+  const w = $derived(view.state?.weather);
   const track = $derived(w ? spark((w.history ?? []).map((p) => p.track), 200, 48) : null);
   const ambient = $derived(w ? spark((w.history ?? []).map((p) => p.ambient), 200, 48) : null);
   const trend = $derived(w ? change(w.history ?? [], 'track') : null);

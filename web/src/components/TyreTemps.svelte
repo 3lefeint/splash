@@ -3,10 +3,10 @@
   import { fixed } from '../lib/format';
   import { wearColor } from '../lib/wear';
   import { settings, t } from '../lib/settings.svelte';
-  import { live } from '../lib/store';
+  import { view } from '../lib/view.svelte';
 
-  const y = $derived(live.state?.tyres);
-  const car = $derived(live.state?.car);
+  const y = $derived(view.state?.tyres);
+  const car = $derived(view.state?.car);
   const names = ['FL', 'FR', 'RL', 'RR'];
   // Front and rear can run different compounds, each with its own range.
   const ranges = $derived([

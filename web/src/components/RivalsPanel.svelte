@@ -3,10 +3,10 @@
   import { tileInfo } from '../lib/info.svelte';
   import { settings, t } from '../lib/settings.svelte';
   import { isAI, shortName, stopLaps } from '../lib/strategy';
-  import { live } from '../lib/store';
+  import { view } from '../lib/view.svelte';
   import type { Rival } from '../lib/types';
 
-  const s = $derived(live.state);
+  const s = $derived(view.state);
   const strategy = $derived(s?.strategy);
   const rejoin = $derived(strategy?.rejoin);
   const me = $derived(s?.car);

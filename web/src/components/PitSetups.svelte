@@ -4,12 +4,12 @@
   import { tileInfo } from '../lib/info.svelte';
   import { setupsUi } from '../lib/setups.svelte';
   import { t } from '../lib/settings.svelte';
-  import { live } from '../lib/store';
+  import { view } from '../lib/view.svelte';
   import type { PitSetup, Step } from '../lib/types';
 
-  const car = $derived(live.state?.car?.vehicle_name ?? '');
-  const menu = $derived(live.state?.pit_menu);
-  const command = $derived(live.state?.command);
+  const car = $derived(view.state?.car?.vehicle_name ?? '');
+  const menu = $derived(view.state?.pit_menu);
+  const command = $derived(view.state?.command);
   let setups = $state<PitSetup[]>([]);
   let error = $state('');
   let busy = $state(false);
@@ -46,8 +46,8 @@
     }
   }
 
-  const requested = $derived(live.state?.car?.pit_state === 1);
-  const inLane = $derived((live.state?.car?.pit_state ?? 0) > 1);
+  const requested = $derived(view.state?.car?.pit_state === 1);
+  const inLane = $derived((view.state?.car?.pit_state ?? 0) > 1);
   const request = () => run(() => pitRequest(requested ? t('setups.requestOff') : t('setups.request')));
   const apply = (s: PitSetup) => run(() => applyPitSetup(s.name, s.steps));
   const addExamples = () =>

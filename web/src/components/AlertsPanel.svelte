@@ -3,10 +3,10 @@
   import { tileInfo } from '../lib/info.svelte';
   import { settings, t } from '../lib/settings.svelte';
   import { alerts } from '../lib/strategy';
-  import { live } from '../lib/store';
+  import { view } from '../lib/view.svelte';
   import type { Key } from '../lib/i18n';
 
-  const list = $derived(alerts(live.state, settings.tyreRanges, settings.tyreFallback, { yellow: settings.yellowAhead, corners: corners.list }));
+  const list = $derived(alerts(view.state, settings.tyreRanges, settings.tyreFallback, { yellow: settings.yellowAhead, corners: corners.list }));
   tileInfo(() => t('alerts.help'));
 </script>
 

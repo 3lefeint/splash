@@ -5,10 +5,10 @@
   import { tileInfo } from '../lib/info.svelte';
   import type { Key } from '../lib/i18n';
   import { t } from '../lib/settings.svelte';
-  import { live } from '../lib/store';
+  import { view } from '../lib/view.svelte';
 
-  const p = $derived(live.state?.pits);
-  const params = $derived(live.state?.params);
+  const p = $derived(view.state?.pits);
+  const params = $derived(view.state?.params);
   const sug = $derived(p?.suggest);
   const canApply = $derived(!!sug && !!params && !!params.track && differs(params, sug));
   tileInfo(() => (p && !sug ? t('pits.waitingStand') : null));
