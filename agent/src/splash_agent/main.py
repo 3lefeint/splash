@@ -529,6 +529,10 @@ def _wait_for_enter() -> None:
 
 
 def cli(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv and getattr(sys, "frozen", False):
+        argv = ["run"]  # a double click on the single-file build starts the agent
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--log-level", default=argparse.SUPPRESS, metavar="LEVEL",
                         help="DEBUG, INFO, WARNING or ERROR (default: log.level of the config file, else INFO)")
