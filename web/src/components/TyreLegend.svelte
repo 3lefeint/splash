@@ -54,5 +54,5 @@
   .fig { width: 100%; height: auto; display: block; }
   .label { font-size: 10px; fill: var(--text); }
   .arrow { stroke: var(--muted); stroke-width: 1; }
-  .note { margin: 6px 0 0; font-size: 0.8rem; color: var(--muted); }
+  .note { margin: calc(6 * var(--ru) / 16) 0 0; font-size: calc(0.8 * var(--ru)); color: var(--muted); }
 </style>

@@ -33,14 +33,14 @@
 {/if}
 
 <style>
-  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-  li { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: calc(8 * var(--ru) / 16); }
+  li { display: grid; grid-template-columns: auto 1fr; gap: calc(2 * var(--ru) / 16) calc(10 * var(--ru) / 16); align-items: center; }
   li .muted { grid-column: 2; }
   .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
   .dot.good { background: var(--good, #3fb950); }
   .dot.warn { background: var(--warn, #e5a50a); }
   .dot.bad { background: var(--bad, #e5534b); }
   .gone { opacity: 0.8; }
-  .small { font-size: 0.8rem; }
+  .small { font-size: calc(0.8 * var(--ru)); }
   .outdated { color: var(--warn, #e5a50a); }
 </style>

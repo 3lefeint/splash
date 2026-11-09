@@ -52,7 +52,10 @@
   const height = $derived(Math.max(rows(shown), 1) * rowH - gap);
 
   function style(i: Item): string {
-    return `left:${i.x * colW}px;top:${i.y * rowH}px;width:${i.w * colW - gap}px;height:${i.h * rowH - gap}px`;
+    const w = i.w * colW - gap;
+    const h = i.h * rowH - gap;
+    // --cw and --ch let the content of the tile scale with its size (see Tile)
+    return `left:${i.x * colW}px;top:${i.y * rowH}px;width:${w}px;height:${h}px;--cw:${w}px;--ch:${h}px`;
   }
 
   function begin(e: PointerEvent, id: string, mode: 'move' | 'size'): void {

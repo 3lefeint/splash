@@ -12,6 +12,8 @@
   --bad: #ff5c6c;
   --gap: 12px;
   --radius: 14px;
+  /* 1rem; a dashboard tile sets its own, scaled with the size of the tile */
+  --ru: 1rem;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 

@@ -113,18 +113,18 @@
 </div>
 
 <style>
-  .controls { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-  .group { display: flex; flex-direction: column; gap: 6px; }
-  .label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-  .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+  .controls { display: flex; flex-direction: column; gap: calc(10 * var(--ru) / 16); min-width: 0; }
+  .group { display: flex; flex-direction: column; gap: calc(6 * var(--ru) / 16); }
+  .label { font-size: calc(0.8 * var(--ru)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .seg { display: flex; flex-wrap: wrap; gap: calc(6 * var(--ru) / 16); }
   .chip.active { background: var(--accent); color: #04121c; border-color: transparent; font-weight: 600; }
-  .row { display: flex; align-items: center; gap: 8px; min-height: 36px; }
-  h3 { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 0.3rem 0.7rem; min-height: 40px; border-radius: 999px; }
+  .row { display: flex; align-items: center; gap: calc(8 * var(--ru) / 16); min-height: 36px; }
+  h3 { font-size: calc(0.8 * var(--ru)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: calc(4 * var(--ru) / 16); }
+  .chips { display: flex; flex-wrap: wrap; gap: calc(6 * var(--ru) / 16); }
+  .chip { display: inline-flex; align-items: center; gap: calc(6 * var(--ru) / 16); padding: calc(0.3 * var(--ru)) calc(0.7 * var(--ru)); min-height: 40px; border-radius: 999px; }
   .chip.off { opacity: 0.45; }
   .swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-  summary { cursor: pointer; padding: 8px 0; min-height: 40px; }
+  summary { cursor: pointer; padding: calc(8 * var(--ru) / 16) 0; min-height: 40px; }
   ul { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

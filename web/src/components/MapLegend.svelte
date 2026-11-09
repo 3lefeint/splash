@@ -19,5 +19,5 @@
 {#if text}<span class="muted legend">{text}</span>{/if}
 
 <style>
-  .legend { font-size: 0.85rem; }
+  .legend { font-size: calc(0.85 * var(--ru)); }
 </style>
