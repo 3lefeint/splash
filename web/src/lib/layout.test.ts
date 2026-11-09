@@ -28,3 +28,34 @@ describe('dashboard layout', () => {
     expect(dashboardLayout.visible).toHaveLength(DEFAULT_DASHBOARD.length);
   });
 });
+
+describe('team default of the dashboard layout', () => {
+  it('applies until the browser changes something of its own, and reset returns to it', () => {
+    dashboardLayout.reset();
+    dashboardLayout.setTeamDefault({ items: [{ id: 'fuel', x: 0, y: 0, w: 6, h: 2 }], hidden: ['map', 'nope'], options: { fuel: { mode: 'compact' } } });
+    expect(dashboardLayout.hidden).toEqual(['map']);
+    expect(dashboardLayout.items.find((i) => i.id === 'fuel')).toMatchObject({ w: 6, h: 2 });
+    expect(dashboardLayout.optionsOf('fuel').mode).toBe('compact');
+    expect(dashboardLayout.items).toHaveLength(DEFAULT_DASHBOARD.length); // tiles the default lacks are added
+
+    dashboardLayout.hide('tyres');
+    dashboardLayout.setTeamDefault({ hidden: [] }); // a later change of the default does not touch an own layout
+    expect(dashboardLayout.hidden).toContain('tyres');
+
+    dashboardLayout.reset();
+    expect(dashboardLayout.hidden).toEqual([]);
+    dashboardLayout.setTeamDefault({ hidden: ['map'] }); // not own again after the reset: follows the default
+    expect(dashboardLayout.hidden).toEqual(['map']);
+
+    dashboardLayout.setTeamDefault(undefined);
+    dashboardLayout.reset();
+    expect(dashboardLayout.hidden).toEqual([]);
+  });
+
+  it('snapshot gives a copy that later changes do not reach', () => {
+    dashboardLayout.reset();
+    const snap = dashboardLayout.snapshot();
+    dashboardLayout.hide('fuel');
+    expect(snap.hidden).toEqual([]);
+  });
+});

@@ -95,6 +95,10 @@ key). Without the two variables authentication is off: a warning is logged, ever
 | `GET/POST /api/admin/cars` | the team cars of a team (`?team_id=`) with their vehicle names and the names seen in sessions that belong to none; add a car `{team_id, name}` |
 | `DELETE /api/admin/cars/{id}?team_id=` | delete a team car; its parameters and set-ups stay stored under its name |
 | `PUT /api/admin/cars/{id}/names`, `DELETE /api/admin/car-names?team_id=&name=` | assign a vehicle name of the game to a team car `{team_id, vehicle_name}` (it moves if it belonged to another car), or take it away |
+| `PUT /api/admin/layout` | save the dashboard default of the administrator's own team: a JSON object `{layout, ranges}` (tile layout, tyre and brake ranges) of at most 64 KB; the backend stores it as it is and the frontend validates it |
+
+`GET /api/layout` (any member) returns the dashboard default of the member's team, or `{}` when the team has none. A browser
+without a layout or ranges of its own follows it; `Reset layout` returns to it.
 
 The first administrator is named in `SPLASH_ADMIN_EMAILS`; the addresses are applied at every start. An administrator
 cannot remove or demote themselves.

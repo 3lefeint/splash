@@ -241,6 +241,11 @@ type Store interface {
 	// keep it. ErrNoSession when the session does not exist.
 	SetSessionExcluded(ctx context.Context, sessionID string, excluded bool) error
 
+	// TeamLayout returns the dashboard default of the team as saved (a JSON document); ok is false when none was saved.
+	TeamLayout(ctx context.Context) (doc []byte, ok bool, err error)
+	// SetTeamLayout saves the dashboard default of the team, replacing an earlier one.
+	SetTeamLayout(ctx context.Context, doc []byte) error
+
 	// Cars lists the team cars with the vehicle names assigned to them.
 	Cars(ctx context.Context) ([]TeamCar, error)
 	// CreateCar adds a team car and returns ErrExists when the name is taken.

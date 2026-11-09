@@ -3,6 +3,7 @@
 export interface KeyValueStore {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
+  removeItem?(key: string): void;
 }
 
 export function safeStorage(): KeyValueStore | null {
@@ -19,6 +20,14 @@ export function readJson<T>(store: KeyValueStore | null, key: string): T | null 
     return raw ? (JSON.parse(raw) as T) : null;
   } catch {
     return null;
+  }
+}
+
+export function removeKey(store: KeyValueStore | null, key: string): void {
+  try {
+    store?.removeItem?.(key);
+  } catch {
+    // blocked storage
   }
 }
 

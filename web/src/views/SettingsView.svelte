@@ -208,31 +208,31 @@
   <p class="muted">{t('set.tyreHelp')}</p>
   {#each settings.tyreRanges as r, i (i)}
     <div class="range">
-      <input class="rname" placeholder={t('set.tyreName')} bind:value={r.name} onchange={() => settings.save()} maxlength="30" />
-      <input type="number" step="1" bind:value={r.low} onchange={() => settings.save()} aria-label={t('set.tyreLow')} />
+      <input class="rname" placeholder={t('set.tyreName')} bind:value={r.name} onchange={() => settings.saveRanges()} maxlength="30" />
+      <input type="number" step="1" bind:value={r.low} onchange={() => settings.saveRanges()} aria-label={t('set.tyreLow')} />
       <span class="muted">–</span>
-      <input type="number" step="1" bind:value={r.high} onchange={() => settings.save()} aria-label={t('set.tyreHigh')} />
+      <input type="number" step="1" bind:value={r.high} onchange={() => settings.saveRanges()} aria-label={t('set.tyreHigh')} />
       <span class="muted">°C</span>
-      <button type="button" onclick={() => { settings.tyreRanges.splice(i, 1); settings.save(); }} aria-label={t('set.tyreRemove')}>×</button>
+      <button type="button" onclick={() => { settings.tyreRanges.splice(i, 1); settings.saveRanges(); }} aria-label={t('set.tyreRemove')}>×</button>
     </div>
   {/each}
   <div class="range">
     <span class="rname muted">{t('set.tyreOther')}</span>
-    <input type="number" step="1" bind:value={settings.tyreFallback.low} onchange={() => settings.save()} aria-label={t('set.tyreLow')} />
+    <input type="number" step="1" bind:value={settings.tyreFallback.low} onchange={() => settings.saveRanges()} aria-label={t('set.tyreLow')} />
     <span class="muted">–</span>
-    <input type="number" step="1" bind:value={settings.tyreFallback.high} onchange={() => settings.save()} aria-label={t('set.tyreHigh')} />
+    <input type="number" step="1" bind:value={settings.tyreFallback.high} onchange={() => settings.saveRanges()} aria-label={t('set.tyreHigh')} />
     <span class="muted">°C</span>
   </div>
   <div class="range">
-    <button type="button" onclick={() => { settings.tyreRanges.push({ name: '', low: 80, high: 100 }); settings.save(); }}>{t('set.tyreAdd')}</button>
+    <button type="button" onclick={() => { settings.tyreRanges.push({ name: '', low: 80, high: 100 }); settings.saveRanges(); }}>{t('set.tyreAdd')}</button>
     <button type="button" onclick={() => settings.resetTyreRanges()}>{t('set.tyreReset')}</button>
   </div>
   <h2>{t('set.brake')}</h2>
   <p class="muted">{t('set.brakeHelp')}</p>
   <div class="range">
-    <input type="number" step="10" bind:value={settings.brakeRange.low} onchange={() => settings.save()} aria-label={t('set.tyreLow')} />
+    <input type="number" step="10" bind:value={settings.brakeRange.low} onchange={() => settings.saveRanges()} aria-label={t('set.tyreLow')} />
     <span class="muted">–</span>
-    <input type="number" step="10" bind:value={settings.brakeRange.high} onchange={() => settings.save()} aria-label={t('set.tyreHigh')} />
+    <input type="number" step="10" bind:value={settings.brakeRange.high} onchange={() => settings.saveRanges()} aria-label={t('set.tyreHigh')} />
     <span class="muted">°C</span>
   </div>
 </section>

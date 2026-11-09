@@ -1,5 +1,5 @@
 import { translate, type Key, type Lang } from './i18n';
-import { readJson, safeStorage, writeJson } from './storage';
+import { readJson, removeKey, safeStorage, writeJson } from './storage';
 import { DEFAULT_BRAKE, DEFAULT_RANGES, FALLBACK_RANGE, type TyreRange } from './conditions';
 import type { Target } from './overlays';
 import type { Overlay, Wheel } from './wear';
@@ -33,8 +33,40 @@ interface Saved {
 export type SoundMode = 'off' | 'beep' | 'voice';
 
 const KEY = 'splash.settings';
+/** The working ranges are stored apart from the other settings, and only once this browser changes them: until then the default of the team applies. */
+const RANGES_KEY = 'splash.ranges';
+
+/** The tyre and brake ranges as a whole, the part of the settings an administrator saves for the team. */
+export interface RangesDoc {
+  tyreRanges: TyreRange[];
+  tyreFallback: { low: number; high: number };
+  brakeRange: { low: number; high: number };
+}
 
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+const pair = (v: unknown): { low: number; high: number } | null => {
+  const p = v as { low?: unknown; high?: unknown } | null;
+  return p && num(p.low) && num(p.high) ? { low: p.low, high: p.high } : null;
+};
+
+const defaultRanges = (): RangesDoc => ({
+  tyreRanges: DEFAULT_RANGES.map((r) => ({ ...r })),
+  tyreFallback: { ...FALLBACK_RANGE },
+  brakeRange: { ...DEFAULT_BRAKE },
+});
+
+/** Keeps what is valid; null when nothing of the three parts is there. */
+function cleanRanges(raw: unknown): RangesDoc | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const tyres = ranges(r.tyreRanges);
+  const fallback = pair(r.tyreFallback);
+  const brake = pair(r.brakeRange);
+  if (!tyres && !fallback && !brake) return null;
+  const d = defaultRanges();
+  return { tyreRanges: tyres ?? d.tyreRanges, tyreFallback: fallback ?? d.tyreFallback, brakeRange: brake ?? d.brakeRange };
+}
 
 const ranges = (v: unknown): TyreRange[] | null =>
   Array.isArray(v)
@@ -92,12 +124,51 @@ class Settings {
     this.mapGhost = saved?.mapGhost !== false;
     Object.assign(this, migrateYellow(saved));
     if (saved?.soundMode === 'beep' || saved?.soundMode === 'voice') this.soundMode = saved.soundMode;
-    this.tyreRanges = ranges(saved?.tyreRanges) ?? this.tyreRanges;
-    const fb = saved?.tyreFallback;
-    if (fb && num(fb.low) && num(fb.high)) this.tyreFallback = { low: fb.low, high: fb.high };
-    const br = saved?.brakeRange;
-    if (br && num(br.low) && num(br.high)) this.brakeRange = { low: br.low, high: br.high };
     if (['all', '0', '1', '2', '3'].includes(saved?.mapWheel as string)) this.mapWheel = saved!.mapWheel as Wheel;
+    this.loadRanges(saved);
+  }
+
+  /** True once this browser stores ranges of its own. */
+  private rangesOwn = false;
+  /** The ranges the administrator saved for the team, when the server has them. */
+  private teamRanges: RangesDoc | null = null;
+
+  private loadRanges(saved: Partial<Saved> | null): void {
+    let own = cleanRanges(readJson(safeStorage(), RANGES_KEY));
+    if (!own) {
+      // Before the ranges had a key of their own they were part of the settings; keep them when they differ from the defaults.
+      const legacy = cleanRanges(saved);
+      if (legacy && JSON.stringify(legacy) !== JSON.stringify(defaultRanges())) {
+        own = legacy;
+        writeJson(safeStorage(), RANGES_KEY, own);
+      }
+    }
+    this.rangesOwn = own !== null;
+    this.adoptRanges(own);
+  }
+
+  private adoptRanges(doc: RangesDoc | null): void {
+    const d = structuredClone(doc ?? defaultRanges());
+    this.tyreRanges = d.tyreRanges;
+    this.tyreFallback = d.tyreFallback;
+    this.brakeRange = d.brakeRange;
+  }
+
+  /** The ranges as they are now, for saving them as the default of the team. */
+  rangesSnapshot(): RangesDoc {
+    return $state.snapshot({ tyreRanges: this.tyreRanges, tyreFallback: this.tyreFallback, brakeRange: this.brakeRange });
+  }
+
+  /** Stores the ranges in this browser after an edit; from then on they are its own. */
+  saveRanges(): void {
+    this.rangesOwn = true;
+    writeJson(safeStorage(), RANGES_KEY, this.rangesSnapshot());
+  }
+
+  /** Takes the ranges the server holds for the team; a browser with ranges of its own keeps them. */
+  setTeamRanges(raw: unknown): void {
+    this.teamRanges = cleanRanges(raw);
+    if (!this.rangesOwn) this.adoptRanges(this.teamRanges);
   }
 
   save(): void {
@@ -110,9 +181,6 @@ class Settings {
       mapHiddenCars: [...this.mapHiddenCars],
       mapOverlay: this.mapOverlay,
       mapWheel: this.mapWheel,
-      tyreRanges: this.tyreRanges.map((r) => ({ ...r })),
-      tyreFallback: { ...this.tyreFallback },
-      brakeRange: { ...this.brakeRange },
       soundMode: this.soundMode,
       voiceName: this.voiceName,
       mapTarget: this.mapTarget,
@@ -124,11 +192,12 @@ class Settings {
     });
   }
 
+  /** Back to the ranges of the team, or the built-in ones; the browser stores none of its own afterwards. */
   resetTyreRanges(): void {
-    this.tyreRanges = DEFAULT_RANGES.map((r) => ({ ...r }));
-    this.tyreFallback = { ...FALLBACK_RANGE };
-    this.brakeRange = { ...DEFAULT_BRAKE };
-    this.save();
+    this.rangesOwn = false;
+    removeKey(safeStorage(), RANGES_KEY);
+    this.adoptRanges(this.teamRanges);
+    this.save(); // rewrites the settings without the ranges an older version kept there
   }
 
   /** Adds or removes a value from a hidden list and saves. */

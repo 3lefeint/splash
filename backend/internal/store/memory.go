@@ -58,6 +58,7 @@ type memTeam struct {
 	plan      []PlanRow
 	overrides map[overrideKey]Override
 	setups    []PitSetup
+	layout    []byte // dashboard default of the team; nil when none was saved
 	wears     map[lapKey]wear.LapWear
 	sessions  map[string]SessionInfo
 	cars      map[int64]*TeamCar
@@ -297,6 +298,22 @@ func (m *Memory) Cars(_ context.Context) ([]TeamCar, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+func (m *Memory) TeamLayout(_ context.Context) ([]byte, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.layout == nil {
+		return nil, false, nil
+	}
+	return append([]byte(nil), m.layout...), true, nil
+}
+
+func (m *Memory) SetTeamLayout(_ context.Context, doc []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.layout = append([]byte(nil), doc...)
+	return nil
 }
 
 func (m *Memory) CreateCar(_ context.Context, name string) (TeamCar, error) {
