@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Agent: a double click on `splash-agent.exe` starts the agent; it no longer stops at a usage error that needs the command line
+
 ## [agent-v0.2.0]
 
 ### Added
