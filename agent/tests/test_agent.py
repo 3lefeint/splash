@@ -346,7 +346,7 @@ def test_the_agent_restarts_for_an_update_only_when_the_game_has_been_idle(tmp_p
 
     agent.updater = ReadyUpdater(object())
     assert agent._update_due(base + update.IDLE_BEFORE_RESTART - 1) is False  # the game time moved a moment ago
-    assert agent._update_due(base + update.IDLE_BEFORE_RESTART) is True
+    assert agent._update_due(base + update.IDLE_BEFORE_RESTART + 1) is True  # not exactly on the limit: the float sum can round below it
     agent.close()
 
 
