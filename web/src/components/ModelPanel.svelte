@@ -82,13 +82,13 @@
 {/if}
 
 <style>
-  ul { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 2px; }
-  li { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: baseline; }
-  .small { font-size: 0.8rem; margin-bottom: 6px; }
-  .weak { color: var(--warn, #e5a50a); font-size: 0.85rem; margin: 0 0 6px; }
-  .excluded { font-size: 0.85rem; margin-bottom: 6px; }
+  ul { list-style: none; margin: 0 0 calc(6 * var(--ru) / 16); padding: 0; display: grid; gap: calc(2 * var(--ru) / 16); }
+  li { display: grid; grid-template-columns: 1fr auto auto; gap: calc(8 * var(--ru) / 16); align-items: baseline; }
+  .small { font-size: calc(0.8 * var(--ru)); margin-bottom: calc(6 * var(--ru) / 16); }
+  .weak { color: var(--warn, #e5a50a); font-size: calc(0.85 * var(--ru)); margin: 0 0 calc(6 * var(--ru) / 16); }
+  .excluded { font-size: calc(0.85 * var(--ru)); margin-bottom: calc(6 * var(--ru) / 16); }
   .excluded summary { cursor: pointer; color: var(--muted); }
-  .why { display: grid; gap: 2px; margin: 6px 0; }
+  .why { display: grid; gap: calc(2 * var(--ru) / 16); margin: calc(6 * var(--ru) / 16) 0; }
   .why li { display: block; }
   .err { color: var(--bad, #e5534b); }
 </style>

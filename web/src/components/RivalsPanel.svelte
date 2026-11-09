@@ -80,19 +80,19 @@
 {/if}
 
 <style>
-  .rejoin { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; display: grid; gap: 2px; }
+  .rejoin { background: var(--surface-2); border-radius: 10px; padding: calc(8 * var(--ru) / 16) calc(10 * var(--ru) / 16); margin-bottom: calc(8 * var(--ru) / 16); display: grid; gap: calc(2 * var(--ru) / 16); }
   .best { color: var(--accent); font-weight: 600; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 0.7rem; padding: 2px 6px 2px 0; white-space: nowrap; }
-  td { padding: 2px 6px 2px 0; border-top: 1px solid var(--border); white-space: nowrap; }
-  .name { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; }
+  table { width: 100%; border-collapse: collapse; font-size: calc(0.85 * var(--ru)); }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: calc(0.7 * var(--ru)); padding: calc(2 * var(--ru) / 16) calc(6 * var(--ru) / 16) calc(2 * var(--ru) / 16) 0; white-space: nowrap; }
+  td { padding: calc(2 * var(--ru) / 16) calc(6 * var(--ru) / 16) calc(2 * var(--ru) / 16) 0; border-top: 1px solid var(--border); white-space: nowrap; }
+  .name { max-width: calc(9 * var(--ru)); overflow: hidden; text-overflow: ellipsis; }
   tr.me td { background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 600; }
   tr.pit { opacity: 0.6; }
   tr.yellow td { background: color-mix(in srgb, #f5c542 16%, transparent); }
-  .cause { font-size: 0.7rem; padding: 1px 6px; border-radius: 999px; font-weight: 600; }
+  .cause { font-size: calc(0.7 * var(--ru)); padding: calc(1 * var(--ru) / 16) calc(6 * var(--ru) / 16); border-radius: 999px; font-weight: 600; }
   .cause { background: var(--bad); color: #fff; }
-  .ai { font-size: 0.65rem; font-weight: 700; padding: 0 5px; border-radius: 999px; background: var(--warn, #e5a50a); color: #231600; }
+  .ai { font-size: calc(0.65 * var(--ru)); font-weight: 700; padding: 0 calc(5 * var(--ru) / 16); border-radius: 999px; background: var(--warn, #e5a50a); color: #231600; }
   .good { color: var(--good, #3fb950); }
   .bad { color: var(--bad, #e5534b); }
-  .small { font-size: 0.75rem; }
+  .small { font-size: calc(0.75 * var(--ru)); }
 </style>

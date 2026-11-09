@@ -277,31 +277,36 @@
   .layoutbar .hint { margin-right: auto; }
   @media (max-width: 639px) { .layoutbar { display: none; } }
   .mapbox { flex: 1; min-height: 160px; min-width: 0; display: flex; }
-  :global(.tile.compact) .big { font-size: clamp(1.4rem, 9cqw, 2.4rem); }
-  :global(.tile.value) .big { font-size: clamp(1.6rem, 24cqw, 5rem); }
+  :global(.tile.compact) .big { font-size: clamp(calc(1.4 * var(--ru)), 9cqw, calc(2.4 * var(--ru))); }
+  :global(.tile.value) .big { font-size: clamp(calc(1.6 * var(--ru)), 24cqw, calc(5 * var(--ru))); }
 /* Stops tile, compact: the number on the left spans two lines, laps and target on the first, the difference on the second. */
-  :global(.tile.compact[data-tile='stops'] .body) { display: grid; grid-template-columns: auto auto 1fr; grid-template-rows: auto auto; align-items: center; column-gap: 14px; row-gap: 0; }
-  :global(.tile.compact[data-tile='stops']) .big { grid-column: 1; grid-row: 1 / 3; font-size: clamp(2rem, 8cqw, 3rem); }
+  :global(.tile.compact[data-tile='stops'] .body) { display: grid; grid-template-columns: auto auto 1fr; grid-template-rows: auto auto; align-items: center; column-gap: calc(14 * var(--ru) / 16); row-gap: 0; }
+  :global(.tile.compact[data-tile='stops']) .big { grid-column: 1; grid-row: 1 / 3; font-size: clamp(calc(2 * var(--ru)), 8cqw, calc(3 * var(--ru))); }
   :global(.tile.compact[data-tile='stops']) .s-laps { grid-column: 2; grid-row: 1; }
   :global(.tile.compact[data-tile='stops']) .s-target { grid-column: 3; grid-row: 1; }
   :global(.tile.compact[data-tile='stops']) .s-delta { grid-column: 2 / 4; grid-row: 2; }
   :global(.tile.compact) .name { font-size: 1.05em; }
-  .big { font-size: clamp(2rem, 16cqw, 4.6rem); font-weight: 700; line-height: 1.05; }
-  .unit { font-size: 0.4em; margin-left: 4px; color: var(--muted); font-weight: 500; }
+  .big { font-size: clamp(calc(2 * var(--ru)), 16cqw, calc(4.6 * var(--ru))); font-weight: 700; line-height: 1.05; }
+  /* In the grid the numbers follow the size of the tile, width and height; stacked on a narrow screen the rules above stay. */
+  :global(.area:not(.stacked) .tile) .big { font-size: calc(3.6 * var(--ru)); }
+  :global(.area:not(.stacked) .tile.compact) .big { font-size: calc(2.2 * var(--ru)); }
+  :global(.area:not(.stacked) .tile.compact[data-tile='stops']) .big { font-size: calc(2.6 * var(--ru)); }
+  :global(.area:not(.stacked) .tile.value) .big { font-size: min(calc(var(--cw, 320px) * 0.2), calc(var(--ch, 300px) * 0.5)); }
+  .unit { font-size: 0.4em; margin-left: calc(4 * var(--ru) / 16); color: var(--muted); font-weight: 500; }
   .name { font-size: 1.3em; font-weight: 600; }
   .small { font-size: 0.8em; }
   .badge {
-    font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-left: 8px;
+    font-size: calc(0.7 * var(--ru)); font-weight: 600; padding: calc(2 * var(--ru) / 16) calc(8 * var(--ru) / 16); border-radius: 999px; margin-left: calc(8 * var(--ru) / 16);
     background: var(--warn); color: #231600; vertical-align: middle; letter-spacing: 0.03em;
   }
-  .ai { margin-left: 8px; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--warn, #e5a50a); color: #231600; vertical-align: middle; }
-  .gearrow { display: flex; align-items: center; gap: 8px; }
-  .plus { padding: 0 10px; font-size: 1.2rem; line-height: 1.6; }
-  .opp { display: grid; grid-template-columns: 5.5rem 1fr auto; gap: 2px 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--border); }
+  .ai { margin-left: calc(8 * var(--ru) / 16); font-size: calc(0.7 * var(--ru)); font-weight: 700; padding: calc(2 * var(--ru) / 16) calc(8 * var(--ru) / 16); border-radius: 999px; background: var(--warn, #e5a50a); color: #231600; vertical-align: middle; }
+  .gearrow { display: flex; align-items: center; gap: calc(8 * var(--ru) / 16); }
+  .plus { padding: 0 calc(10 * var(--ru) / 16); font-size: calc(1.2 * var(--ru)); line-height: 1.6; }
+  .opp { display: grid; grid-template-columns: calc(5.5 * var(--ru)) 1fr auto; gap: calc(2 * var(--ru) / 16) calc(10 * var(--ru) / 16); align-items: baseline; padding: calc(6 * var(--ru) / 16) 0; border-top: 1px solid var(--border); }
   .opp:first-of-type { border-top: 0; }
   .oppname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .opp .num:last-child { grid-column: 2 / 4; text-align: right; }
   .neutral { color: var(--muted); }
-  .maprow { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .maprow { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; gap: calc(12 * var(--ru) / 16); }
   .maprow a { color: var(--accent); white-space: nowrap; }
 </style>

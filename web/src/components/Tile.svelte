@@ -43,35 +43,40 @@
 
 <style>
   .tile {
+    /* The size of 1rem in this tile: 1rem for a tile of 320 x 160 px (the cell sets --cw and --ch), which is about what the content of a tile needs; smaller or larger with the tile. Without a grid cell (stacked on a narrow screen) it stays 1rem. */
+    --ru: min(calc(var(--cw, 320px) * 0.05), calc(var(--ch, 160px) * 0.1));
+    font-size: var(--ru);
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 14px 16px;
+    padding: calc(14 * var(--ru) / 16) calc(16 * var(--ru) / 16);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: calc(6 * var(--ru) / 16);
     min-width: 0;
     height: 100%;
     overflow: auto;
     position: relative;
   }
+  /* In the grid the content shrinks with the tile instead of scrolling. */
+  :global(.area:not(.stacked)) .tile { overflow: hidden; }
   /* The numbers inside follow the width of the tile, not of the window. */
-  .body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; container-type: inline-size; }
+  .body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: calc(6 * var(--ru) / 16); container-type: inline-size; }
   /* One line: small title, the values side by side. */
-  .tile.compact { padding: 8px 12px; gap: 2px; overflow: hidden; }
-  .tile.compact h2 { font-size: 0.65rem; }
-  :where(.tile.compact) .body { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 0; }
+  .tile.compact { padding: calc(8 * var(--ru) / 16) calc(12 * var(--ru) / 16); gap: calc(2 * var(--ru) / 16); overflow: hidden; }
+  .tile.compact h2 { font-size: calc(0.65 * var(--ru)); }
+  :where(.tile.compact) .body { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: calc(12 * var(--ru) / 16); row-gap: 0; }
   /* Only the first value; the title is hidden and the tools sit in the corner. */
-  .tile.value { padding: 6px 10px; overflow: hidden; }
+  .tile.value { padding: calc(6 * var(--ru) / 16) calc(10 * var(--ru) / 16); overflow: hidden; }
   .tile.value header { position: absolute; top: 4px; right: 6px; opacity: 0.7; z-index: 1; }
   .tile.value h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .tile.value .body > :global(:not(:first-child)) { display: none; }
   .tile.warn { border-color: var(--warn); }
   .tile.bad { border-color: var(--bad); }
   .tile.good { border-color: var(--good); }
-  .tools { display: flex; align-items: center; gap: 8px; }
-  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  h2 { color: var(--muted); font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+  .tools { display: flex; align-items: center; gap: calc(8 * var(--ru) / 16); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: calc(8 * var(--ru) / 16); }
+  h2 { color: var(--muted); font-size: calc(0.8 * var(--ru)); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
   @media (min-width: 900px) {
     .wide { grid-column: span 2; }
   }

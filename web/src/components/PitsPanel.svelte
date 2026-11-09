@@ -74,11 +74,11 @@
 {/if}
 
 <style>
-  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 0.75rem; padding: 2px 6px 2px 0; }
-  .small { font-size: 0.75rem; }
-  td { padding: 3px 6px 3px 0; border-top: 1px solid var(--border); white-space: nowrap; }
-  h3 { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 8px; }
-  .sug { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-  .sug li { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: baseline; }
+  table { width: 100%; border-collapse: collapse; font-size: calc(0.9 * var(--ru)); }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: calc(0.75 * var(--ru)); padding: calc(2 * var(--ru) / 16) calc(6 * var(--ru) / 16) calc(2 * var(--ru) / 16) 0; }
+  .small { font-size: calc(0.75 * var(--ru)); }
+  td { padding: calc(3 * var(--ru) / 16) calc(6 * var(--ru) / 16) calc(3 * var(--ru) / 16) 0; border-top: 1px solid var(--border); white-space: nowrap; }
+  h3 { font-size: calc(0.8 * var(--ru)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: calc(8 * var(--ru) / 16); }
+  .sug { list-style: none; margin: 0; padding: 0; display: grid; gap: calc(2 * var(--ru) / 16); }
+  .sug li { display: grid; grid-template-columns: 1fr auto auto; gap: calc(8 * var(--ru) / 16); align-items: baseline; }
 </style>

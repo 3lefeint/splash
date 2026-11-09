@@ -20,6 +20,6 @@
 
 <style>
   p { margin: 0; }
-  .small { font-size: 0.8rem; }
-  .name { font-size: clamp(1.8rem, 6vw, 3rem); font-weight: 700; line-height: 1.1; overflow-wrap: anywhere; }
+  .small { font-size: calc(0.8 * var(--ru)); }
+  .name { font-size: clamp(calc(1.8 * var(--ru)), 6vw, calc(3 * var(--ru))); font-weight: 700; line-height: 1.1; overflow-wrap: anywhere; }
 </style>

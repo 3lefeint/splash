@@ -21,8 +21,8 @@
 {/if}
 
 <style>
-  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-  li { padding: 6px 10px; border-radius: 8px; border-left: 4px solid var(--muted); background: var(--surface-2); font-size: 0.9rem; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: calc(6 * var(--ru) / 16); }
+  li { padding: calc(6 * var(--ru) / 16) calc(10 * var(--ru) / 16); border-radius: 8px; border-left: 4px solid var(--muted); background: var(--surface-2); font-size: calc(0.9 * var(--ru)); }
   li.warn { border-left-color: var(--warn, #e5a50a); }
   li.bad { border-left-color: var(--bad, #e5534b); }
   li.info { border-left-color: var(--accent); }

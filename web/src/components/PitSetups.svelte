@@ -213,12 +213,12 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 2px;
+    gap: calc(2 * var(--ru) / 16);
     width: 100%;
     height: 100%;
     overflow: hidden;
     justify-content: center;
-    padding: 6px 10px;
+    padding: calc(6 * var(--ru) / 16) calc(10 * var(--ru) / 16);
     text-align: left;
     background: var(--surface-2);
     border: 1px solid var(--border);
@@ -231,13 +231,13 @@
   .setup:hover:not(:disabled) { border-color: var(--accent); }
   .setup:disabled { opacity: 0.6; }
   .request.on { border-color: var(--warn, #e5a50a); color: var(--warn, #e5a50a); }
-  .form { display: grid; gap: 6px; min-width: 0; }
+  .form { display: grid; gap: calc(6 * var(--ru) / 16); min-width: 0; }
   .form input { min-width: 0; width: 100%; box-sizing: border-box; }
-  .step { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
-  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .step { display: grid; grid-template-columns: 1fr 1fr auto; gap: calc(6 * var(--ru) / 16); }
+  .row { display: flex; gap: calc(6 * var(--ru) / 16); flex-wrap: wrap; margin-top: calc(4 * var(--ru) / 16); }
   .small { font-size: 0.8em; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
   .setup b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-  .status { margin: 8px 0 0; font-size: 0.9rem; }
+  .status { margin: calc(8 * var(--ru) / 16) 0 0; font-size: calc(0.9 * var(--ru)); }
   .status.failed, .err { color: var(--bad, #e5534b); }
   .status.done { color: var(--good, #3fb950); }
 </style>

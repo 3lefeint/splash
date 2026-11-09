@@ -46,18 +46,18 @@
 {/if}
 
 <style>
-  .row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-  .temp { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .big { font-size: clamp(1.3rem, 2.6vw, 2rem); font-weight: 700; line-height: 1.1; }
-  .unit { font-size: 0.55em; margin-left: 2px; color: var(--muted); font-weight: 500; }
-  .small { font-size: 0.78rem; }
+  .row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(8 * var(--ru) / 16); }
+  .temp { display: flex; flex-direction: column; gap: calc(2 * var(--ru) / 16); min-width: 0; }
+  .big { font-size: clamp(calc(1.3 * var(--ru)), 2.6vw, calc(2 * var(--ru))); font-weight: 700; line-height: 1.1; }
+  .unit { font-size: 0.55em; margin-left: calc(2 * var(--ru) / 16); color: var(--muted); font-weight: 500; }
+  .small { font-size: calc(0.78 * var(--ru)); }
   .accent { color: var(--accent); }
-  .chart { width: 100%; height: 56px; margin-top: 6px; }
+  .chart { width: 100%; height: 56px; margin-top: calc(6 * var(--ru) / 16); }
   .chart path { fill: none; stroke-width: 2; stroke-linejoin: round; }
   .trk { stroke: var(--warn); }
   .air { stroke: var(--accent); opacity: 0.8; }
-  .legend { display: flex; gap: 14px; flex-wrap: wrap; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+  .legend { display: flex; gap: calc(14 * var(--ru) / 16); flex-wrap: wrap; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: calc(5 * var(--ru) / 16); }
   .trkc { background: var(--warn); }
   .airc { background: var(--accent); }
 </style>
