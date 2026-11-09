@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [agent-v0.2.1] - 2026-11-09
+
+### Fixed
+
+- Agent: a double click on `splash-agent.exe` starts the agent; it no longer stops at a usage error that needs the command line
+
+## [v0.2.0] - 2026-11-09
+
 ### Added
 
 - Administrators can save the dashboard layout and the tyre and brake ranges as the team default; browsers without their own values follow it (#13)
@@ -9,10 +17,6 @@
 ### Changed
 
 - Dashboard tiles scale their text and spacing with the tile size instead of scrolling (#14)
-
-### Fixed
-
-- Agent: a double click on `splash-agent.exe` starts the agent; it no longer stops at a usage error that needs the command line
 
 ## [agent-v0.2.0]
 
