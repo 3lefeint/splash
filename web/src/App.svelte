@@ -24,12 +24,14 @@
   import { t, settings } from './lib/settings.svelte';
   import { alerts } from './lib/strategy';
   import { live } from './lib/store';
+  import { teamDefault } from './lib/teamdefault.svelte';
 
   onMount(() => {
     router.start();
     agents.start(); // applies the chosen agent before the stream opens
     live.start();
     void identity.load();
+    void teamDefault.load();
     return () => {
       live.stop();
       agents.stop();

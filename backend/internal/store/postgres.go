@@ -626,6 +626,24 @@ WHERE c.team_id = $1 GROUP BY c.id ORDER BY c.name`, p.team)
 	return out, rows.Err()
 }
 
+func (p *Postgres) TeamLayout(ctx context.Context) ([]byte, bool, error) {
+	var doc []byte
+	err := p.pool.QueryRow(ctx, `SELECT doc FROM team_layouts WHERE team_id = $1`, p.team).Scan(&doc)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return doc, true, nil
+}
+
+func (p *Postgres) SetTeamLayout(ctx context.Context, doc []byte) error {
+	_, err := p.pool.Exec(ctx, `INSERT INTO team_layouts (team_id, doc) VALUES ($1, $2)
+ON CONFLICT (team_id) DO UPDATE SET doc = EXCLUDED.doc, saved = now()`, p.team, doc)
+	return err
+}
+
 func (p *Postgres) CreateCar(ctx context.Context, name string) (TeamCar, error) {
 	c := TeamCar{Name: name, Names: []string{}}
 	err := p.pool.QueryRow(ctx, `INSERT INTO team_cars (team_id, name) VALUES ($1,$2) RETURNING id`, p.team, name).Scan(&c.ID)

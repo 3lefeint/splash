@@ -179,6 +179,7 @@ func (a *API) hub(rt *teams.Runtime, sel int64, email string) *Hub {
 func (a *API) Register(mux *http.ServeMux) {
 	h := func(pattern string, fn http.HandlerFunc) { mux.HandleFunc(pattern, a.guard(pattern, fn)) }
 	h("GET /api/me", a.getMe)
+	h("GET /api/layout", a.getLayout)
 	h("GET /api/me/agent", a.getMyAgent)
 	h("POST /api/me/agent/config", a.postMyAgentConfig)
 	h("GET /api/state", a.getState)

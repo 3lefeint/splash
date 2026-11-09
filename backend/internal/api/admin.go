@@ -33,6 +33,7 @@ func (a *API) registerAdmin(h func(string, http.HandlerFunc)) {
 	h("POST /api/admin/agents/{id}/revoke", a.adminOnly(a.adminRevokeAgent))
 	h("GET /api/admin/cars", a.adminOnly(a.adminCars))
 	h("POST /api/admin/cars", a.adminOnly(a.adminCreateCar))
+	h("PUT /api/admin/layout", a.adminOnly(a.adminSetLayout))
 	h("DELETE /api/admin/cars/{id}", a.adminOnly(a.adminDeleteCar))
 	h("PUT /api/admin/cars/{id}/names", a.adminOnly(a.adminMapCarName))
 	h("DELETE /api/admin/car-names", a.adminOnly(a.adminUnmapCarName))

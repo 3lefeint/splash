@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"strconv"
 	"testing"
@@ -357,6 +358,25 @@ func runSuite(t *testing.T, s Store) {
 		s.DeletePitSetup(ctx, "gt3", "Max")
 		if got, _ := s.PitSetups(ctx, "gt3"); len(got) != 1 || got[0].Name != "Medium" {
 			t.Fatalf("got=%+v", got)
+		}
+	})
+
+	t.Run("the team layout is saved as one document and replaced", func(t *testing.T) {
+		if _, ok, err := s.TeamLayout(ctx); err != nil || ok {
+			t.Fatalf("before saving: ok=%v err=%v", ok, err)
+		}
+		if err := s.SetTeamLayout(ctx, []byte(`{"layout":{"items":[]}}`)); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetTeamLayout(ctx, []byte(`{"layout":{"hidden":["map"]}}`)); err != nil {
+			t.Fatal(err)
+		}
+		doc, ok, err := s.TeamLayout(ctx)
+		var got struct {
+			Layout map[string]any `json:"layout"`
+		}
+		if err != nil || !ok || json.Unmarshal(doc, &got) != nil || got.Layout["hidden"] == nil || got.Layout["items"] != nil {
+			t.Fatalf("doc=%s ok=%v err=%v", doc, ok, err)
 		}
 	})
 

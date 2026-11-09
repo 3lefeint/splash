@@ -118,6 +118,10 @@ export const pitRequest = (name: string) =>
 
 export const getMe = () => request<Me>('GET', '/api/me');
 
+/** The dashboard default of the team: an empty object when an administrator has not saved one. */
+export const getTeamLayout = () => request<Record<string, unknown>>('GET', '/api/layout');
+export const adminSaveLayout = (doc: unknown) => request<void>('PUT', '/api/admin/layout', doc);
+
 export const adminTeams = () => request<AdminTeam[]>('GET', '/api/admin/teams');
 export const adminCreateTeam = (name: string) => request<AdminTeam>('POST', '/api/admin/teams', { name });
 export const adminMembers = () => request<AdminMember[]>('GET', '/api/admin/members');

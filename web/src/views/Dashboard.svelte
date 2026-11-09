@@ -20,6 +20,8 @@
   import { setupsUi } from '../lib/setups.svelte';
   import { currentEntry, nextEntry, until } from '../lib/plan';
   import { dashboardLayout } from '../lib/layout.svelte';
+  import { identity } from '../lib/me.svelte';
+  import { teamDefault } from '../lib/teamdefault.svelte';
   import { hasGear } from '../lib/tiles';
   import type { Key } from '../lib/i18n';
   import { t } from '../lib/settings.svelte';
@@ -74,6 +76,10 @@
       <span class="muted hint">{t('layout.hint')}</span>
       <label class="demo"><input type="checkbox" checked={view.demo} disabled={!view.hasData} onchange={() => (dashboardLayout.demo = !dashboardLayout.demo)} />{t('layout.demo')}</label>
       <button onclick={() => dashboardLayout.reset()}>{t('layout.reset')}</button>
+      {#if identity.isAdmin}
+        <button onclick={() => { teamDefault.status = ''; void teamDefault.save(); }}>{t('layout.saveTeam')}</button>
+        {#if teamDefault.status}<span class="muted hint" role="status">{t(teamDefault.status === 'done' ? 'layout.saveTeamDone' : 'layout.saveTeamFailed')}</span>{/if}
+      {/if}
       <button class="primary" onclick={() => (dashboardLayout.edit = false)}>{t('layout.done')}</button>
     </div>
   {/if}

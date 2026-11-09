@@ -1,5 +1,5 @@
 import { compact, reconcile, rows, type Item } from './grid';
-import { readJson, safeStorage, writeJson } from './storage';
+import { readJson, removeKey, safeStorage, writeJson } from './storage';
 import { cleanOptions, OFF_BY_DEFAULT, type TileOptions } from './tiles';
 
 const KEY = 'splash.layout.dashboard';
@@ -25,6 +25,26 @@ export const DEFAULT_DASHBOARD: Item[] = [
   { id: 'corner', x: 8, y: 19, w: 4, h: 3 },
 ];
 
+/** What an administrator saves as the default of the team: the same three parts the browser stores. */
+export interface LayoutDoc {
+  items: Item[];
+  hidden: string[];
+  options: Record<string, TileOptions>;
+}
+
+const KNOWN = new Set(DEFAULT_DASHBOARD.map((d) => d.id));
+
+/** Takes a layout as stored or received and keeps what is valid; tiles that are missing come back at their default place. */
+function cleanDoc(raw: unknown): LayoutDoc | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as { items?: unknown; hidden?: unknown; options?: unknown };
+  return {
+    items: reconcile(r.items, DEFAULT_DASHBOARD),
+    hidden: Array.isArray(r.hidden) ? r.hidden.filter((id): id is string => typeof id === 'string' && KNOWN.has(id)) : [],
+    options: cleanOptions(r.options, KNOWN),
+  };
+}
+
 class DashboardLayout {
   /** Positions of all tiles, hidden ones included, so a tile comes back where it was. */
   items = $state<Item[]>(DEFAULT_DASHBOARD);
@@ -39,19 +59,38 @@ class DashboardLayout {
     return this.items.filter((i) => !this.hidden.includes(i.id));
   }
 
+  /** True once this browser stores a layout of its own; until then the team default (or the built-in one) applies. */
+  private own = false;
+  /** The default the administrator saved for the team, when the server has one. */
+  private team: LayoutDoc | null = null;
+
   constructor() {
     const saved = readJson<{ v: number; items: unknown; hidden?: unknown; options?: unknown }>(safeStorage(), KEY);
     const ok = saved?.v === 1 || saved?.v === VERSION;
-    this.items = reconcile(ok ? saved!.items : null, DEFAULT_DASHBOARD);
-    const known = new Set(DEFAULT_DASHBOARD.map((d) => d.id));
-    if (ok) this.options = cleanOptions(saved!.options, known);
-    if (ok && Array.isArray(saved!.hidden)) {
-      this.hidden = saved!.hidden.filter((id): id is string => typeof id === 'string' && known.has(id));
-    }
+    this.own = ok;
+    this.adopt(ok ? cleanDoc(saved) : null);
+  }
+
+  private adopt(doc: LayoutDoc | null): void {
+    this.items = doc ? doc.items.map((i) => ({ ...i })) : reconcile(null, DEFAULT_DASHBOARD);
+    this.hidden = doc ? [...doc.hidden] : [];
+    this.options = doc ? structuredClone(doc.options) : {};
   }
 
   private save(): void {
+    this.own = true;
     writeJson(safeStorage(), KEY, { v: VERSION, items: this.items, hidden: this.hidden, options: this.options });
+  }
+
+  /** Takes the default the server holds for the team; a browser with a layout of its own keeps that one. */
+  setTeamDefault(raw: unknown): void {
+    this.team = cleanDoc(raw);
+    if (!this.own) this.adopt(this.team);
+  }
+
+  /** The layout as it is now, for saving it as the default of the team. */
+  snapshot(): LayoutDoc {
+    return { items: this.items.map((i) => ({ ...i })), hidden: [...this.hidden], options: $state.snapshot(this.options) };
   }
 
   optionsOf(id: string): TileOptions {
@@ -107,11 +146,11 @@ class DashboardLayout {
     this.items = [...compact(this.visible), ...gone];
   }
 
+  /** Back to the default of the team, or the built-in one; the browser stores nothing of its own afterwards. */
   reset(): void {
-    this.hidden = [];
-    this.options = {};
-    this.items = reconcile(null, DEFAULT_DASHBOARD);
-    this.save();
+    this.own = false;
+    removeKey(safeStorage(), KEY);
+    this.adopt(this.team);
   }
 }
 
