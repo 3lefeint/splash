@@ -20,6 +20,7 @@ type State struct {
 	firstET   float64
 	hasFirst  bool
 	updated   time.Time
+	telemAt   time.Time
 }
 
 // Snapshot is a copy of the current live state.
@@ -69,7 +70,16 @@ func (s *State) UpdateTelemetry(sessionID string, et float64, v wire.Telemetry) 
 	}
 	s.telemetry, s.telemET = &v, et
 	s.updated = time.Now()
+	s.telemAt = s.updated
 	return true
+}
+
+// TelemetryUpdated is the wall-clock time of the last telemetry sample that was stored; zero before the first one.
+// Only an agent whose game has a car in the driver's seat sends telemetry.
+func (s *State) TelemetryUpdated() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.telemAt
 }
 
 // Updated is the wall-clock time of the last sample that was stored; zero before the first one.
