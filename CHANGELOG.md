@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Stops, lap conditions, tyre wear and weather points record the agent that delivered them (#17)
+
+### Fixed
+
+- Stand-still times of a stop are taken from the first agent that reports them, so a second agent that sees the same car no longer doubles them (#17)
+
 ## [agent-v0.2.1] - 2026-11-09
 
 ### Fixed

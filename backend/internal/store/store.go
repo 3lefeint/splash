@@ -170,6 +170,9 @@ type StopRecord struct {
 	// Work is the time from standing still to the last change of fuel or tyres, FuelTime the time fuel was flowing.
 	// Both are 0 when unknown. A car may stand longer than it works, e.g. while the driver waits.
 	Work, FuelTime float64
+	// AgentID is the agent that reported the pit entry, StandingAgentID the one whose stand-still times are stored;
+	// 0 when unknown (stops from before it was stored, the shared dev token).
+	AgentID, StandingAgentID int64
 }
 
 // Standing is one stand-still of a car in its pit box.
@@ -179,15 +182,16 @@ type Standing struct {
 	Work, FuelTime float64
 }
 
-// Store is the persistence used by the ingest. Writes are idempotent: the same
-// lap or event arriving from both agents, or twice after a resend, is stored once.
+// Store is the persistence used by the ingest. Laps and events are idempotent: the same lap or event arriving from
+// both agents, or twice after a resend, is stored once. Stand-still times are owned by one agent per stop (AddStopped).
 type Store interface {
 	// SaveLap upserts a lap. A field that is null in the new record keeps its
 	// stored value, so the driver agent's fuel data and the spotter agent's
 	// field data end up in one row.
 	SaveLap(ctx context.Context, sessionID string, l wire.Lap, agentID int64) error
-	// SaveEvent applies a pit entry/exit or driver swap to the stops. Other kinds are ignored.
-	SaveEvent(ctx context.Context, sessionID string, et float64, e wire.Event) error
+	// SaveEvent applies a pit entry/exit or driver swap to the stops. Other kinds are ignored. A new stop records
+	// the agent that reported it.
+	SaveEvent(ctx context.Context, sessionID string, et float64, e wire.Event, agentID int64) error
 	// Progress returns the highest durable seq stored for an agent and session.
 	Progress(ctx context.Context, agentID, sessionID string) (seq int64, ok bool, err error)
 	// SetProgress records the highest durable seq. It never moves backwards.
@@ -197,7 +201,10 @@ type Store interface {
 	LapsOfCar(ctx context.Context, sessionID string, carID int, vehicleName string) ([]LapRecord, error)
 	Stops(ctx context.Context, sessionID string) ([]StopRecord, error)
 	// AddStopped adds a stand-still (from game time from to to) and the work done during it to the stop it belongs to.
-	AddStopped(ctx context.Context, sessionID string, carID int, vehicleName string, st Standing) error
+	// The first agent that reports a stand-still for a stop owns its stand-still times; the same stand-still reported by
+	// another agent is ignored, so two agents that see the same car do not add it twice. Adding is not idempotent for
+	// the owning agent: it must send every stand-still once.
+	AddStopped(ctx context.Context, sessionID string, carID int, vehicleName string, st Standing, agentID int64) error
 
 	// GetParams returns the parameter set of a track and car; ok is false when none exists.
 	GetParams(ctx context.Context, track, car string) (p Params, ok bool, err error)
@@ -286,7 +293,7 @@ type Store interface {
 	DeletePitLane(ctx context.Context, track string) error
 
 	// SaveLapWear stores the tyre wear by track section of one lap, replacing an earlier record of the same lap.
-	SaveLapWear(ctx context.Context, sessionID string, carID int, vehicleName string, w wear.LapWear) error
+	SaveLapWear(ctx context.Context, sessionID string, carID int, vehicleName string, w wear.LapWear, agentID int64) error
 	// LapWears returns the stored laps of one car ordered by lap number.
 	LapWears(ctx context.Context, sessionID string, carID int, vehicleName string) ([]wear.LapWear, error)
 }
@@ -382,6 +389,8 @@ type LapConditions struct {
 	Oil           *float64  `json:"oil"`
 	CompoundFront string    `json:"compound_front"`
 	CompoundRear  string    `json:"compound_rear"`
+	// AgentID is the agent that delivered the telemetry; 0 when unknown.
+	AgentID int64 `json:"-"`
 }
 
 // WeatherPoint is one sample of the weather during a session; ET is the game time.
@@ -391,6 +400,8 @@ type WeatherPoint struct {
 	Track   *float64 `json:"track"`
 	Rain    *float64 `json:"rain"`
 	Wetness *float64 `json:"wetness"`
+	// AgentID is the agent whose scoring data the point was taken from; 0 when unknown.
+	AgentID int64 `json:"-"`
 }
 
 // Corner is a named stretch of a track. From and To are distances along the lap in metres in driving direction (To

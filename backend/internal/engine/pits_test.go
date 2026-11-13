@@ -173,9 +173,9 @@ func TestTheEngineMeasuresTheStretchFromTheLearnedLane(t *testing.T) {
 	r.laps(5) // 100 s laps
 	exitET := 200.0
 	ctx := context.Background()
-	r.st.SaveEvent(ctx, sess, 100, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "me"})
-	r.st.SaveEvent(ctx, sess, exitET, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "me"})
-	r.st.AddStopped(ctx, sess, 0, "me", store.Standing{From: 130, To: 170})
+	r.st.SaveEvent(ctx, sess, 100, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "me"}, 0)
+	r.st.SaveEvent(ctx, sess, exitET, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "me"}, 0)
+	r.st.AddStopped(ctx, sess, 0, "me", store.Standing{From: 130, To: 170}, 0)
 	st, err := r.eng.Compute(context.Background())
 	if err != nil || st.Pits == nil || len(st.Pits.Rows) != 1 {
 		t.Fatalf("%+v %v", st.Pits, err)
@@ -225,9 +225,9 @@ func TestTheEngineNamesTheMissingEntryDistance(t *testing.T) {
 		Vehicles: []wire.ScoringVehicle{vehicle(0, "me", "GT3", 1, 0)}})
 	r.laps(5)
 	ctx := context.Background()
-	r.st.SaveEvent(ctx, sess, 100, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "me"})
-	r.st.SaveEvent(ctx, sess, 200, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "me"})
-	r.st.AddStopped(ctx, sess, 0, "me", store.Standing{From: 130, To: 170})
+	r.st.SaveEvent(ctx, sess, 100, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "me"}, 0)
+	r.st.SaveEvent(ctx, sess, 200, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "me"}, 0)
+	r.st.AddStopped(ctx, sess, 0, "me", store.Standing{From: 130, To: 170}, 0)
 	st, err := r.eng.Compute(ctx)
 	if err != nil || st.Pits == nil || len(st.Pits.Rows) != 1 || st.Pits.Rows[0].NetMissing != "entry_dist" {
 		t.Fatalf("%+v %v", st.Pits, err)

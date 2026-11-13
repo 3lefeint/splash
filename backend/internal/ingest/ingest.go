@@ -248,7 +248,7 @@ func (s *Server) handle(ctx context.Context, m wire.Message, cs *connStats) (int
 			s.Maps.Observe(ctx, m.SessionID, b)
 		}
 		for _, w := range cs.st.stood.observe(m.SessionID, m.ET, b.Vehicles) {
-			if err := s.Store.AddStopped(ctx, m.SessionID, w.CarID, w.VehicleName, w.Standing); err != nil {
+			if err := s.Store.AddStopped(ctx, m.SessionID, w.CarID, w.VehicleName, w.Standing, cs.ref.ID); err != nil {
 				s.Log.Error("save stand-still", "team", s.TeamID, "err", err)
 			}
 		}
@@ -261,11 +261,12 @@ func (s *Server) handle(ctx context.Context, m wire.Message, cs *connStats) (int
 		s.touchSession(ctx, cs.st, m.SessionID, m.ET, "", "", b.VehicleName, b.CarID)
 		s.observeOwnLap(cs.st.live, m.SessionID, m.ET, b)
 		if c := cs.st.cond.observe(m.SessionID, m.ET, b, cs.st.live.Snapshot().Scoring); c != nil {
+			c.AgentID = cs.ref.ID
 			if err := s.Store.SaveLapConditions(ctx, *c); err != nil {
 				s.Log.Error("save lap conditions", "team", s.TeamID, "err", err)
 			}
 		}
-		s.observeWear(ctx, cs.st.live, m.SessionID, b)
+		s.observeWear(ctx, cs.st.live, m.SessionID, b, cs.ref.ID)
 		cs.st.stood.telemetry(m.SessionID, m.ET, b)
 		return last, nil
 	}
@@ -285,7 +286,7 @@ func (s *Server) handle(ctx context.Context, m wire.Message, cs *connStats) (int
 			return 0, err
 		}
 	case wire.Event:
-		if err := s.Store.SaveEvent(ctx, m.SessionID, m.ET, b); err != nil {
+		if err := s.Store.SaveEvent(ctx, m.SessionID, m.ET, b, cs.ref.ID); err != nil {
 			return 0, err
 		}
 	}
@@ -323,7 +324,7 @@ func (s *Server) lastSeq(ctx context.Context, key string, m wire.Message) (int64
 }
 
 // observeWear attributes the wear of the driven car to track sections and stores every completed lap.
-func (s *Server) observeWear(ctx context.Context, lv *live.State, sessionID string, tel wire.Telemetry) {
+func (s *Server) observeWear(ctx context.Context, lv *live.State, sessionID string, tel wire.Telemetry, agentID int64) {
 	if tel.LapDist == nil {
 		return
 	}
@@ -337,7 +338,7 @@ func (s *Server) observeWear(ctx context.Context, lv *live.State, sessionID stri
 	if done == nil {
 		return
 	}
-	if err := s.Store.SaveLapWear(ctx, sessionID, tel.CarID, tel.VehicleName, *done); err != nil {
+	if err := s.Store.SaveLapWear(ctx, sessionID, tel.CarID, tel.VehicleName, *done, agentID); err != nil {
 		s.Log.Error("save lap wear", "team", s.TeamID, "err", err)
 	}
 }

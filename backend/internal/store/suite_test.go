@@ -55,12 +55,12 @@ func runSuite(t *testing.T, s Store) {
 		exit := wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "v", FuelAdded: f(55), TyresChanged: &yes}
 		swap := wire.Event{Kind: wire.EventDriverSwap, CarID: 0, VehicleName: "v"}
 		for i := 0; i < 2; i++ { // both agents send the same events
-			s.SaveEvent(ctx, sess, 1000, entry)
-			s.SaveEvent(ctx, sess, 1030, swap)
-			s.SaveEvent(ctx, sess, 1045, exit)
+			s.SaveEvent(ctx, sess, 1000, entry, 0)
+			s.SaveEvent(ctx, sess, 1030, swap, 0)
+			s.SaveEvent(ctx, sess, 1045, exit, 0)
 		}
-		s.SaveEvent(ctx, sess, 1000.4, entry)                                                          // the other agent saw the same entry 0.4 s later
-		s.SaveEvent(ctx, sess, 1100, wire.Event{Kind: wire.EventFCYStart, CarID: 0, VehicleName: "v"}) // ignored
+		s.SaveEvent(ctx, sess, 1000.4, entry, 0)                                                          // the other agent saw the same entry 0.4 s later
+		s.SaveEvent(ctx, sess, 1100, wire.Event{Kind: wire.EventFCYStart, CarID: 0, VehicleName: "v"}, 0) // ignored
 		stops, err := s.Stops(ctx, sess)
 		if err != nil || len(stops) != 1 {
 			t.Fatalf("stops=%v err=%v", stops, err)
@@ -73,7 +73,7 @@ func runSuite(t *testing.T, s Store) {
 
 	t.Run("exit without entry is ignored", func(t *testing.T) {
 		sess := "orphan"
-		s.SaveEvent(ctx, sess, 50, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "v"})
+		s.SaveEvent(ctx, sess, 50, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "v"}, 0)
 		if stops, _ := s.Stops(ctx, sess); len(stops) != 0 {
 			t.Fatalf("stops=%v", stops)
 		}
@@ -388,8 +388,8 @@ func runSuite(t *testing.T, s Store) {
 		s.TouchSession(ctx, SessionInfo{SessionID: "older", Track: "x", LastSeen: t0.Add(-time.Hour)})
 		s.SaveLap(ctx, "sess", wire.Lap{CarID: 0, VehicleName: "M4", Lap: 1}, 0)
 		s.SaveLap(ctx, "sess", wire.Lap{CarID: 1, VehicleName: "other", Lap: 1}, 0)
-		s.SaveLap(ctx, "sess", wire.Lap{CarID: 5, VehicleName: "M4", Lap: 1}, 0)                           // a rival with the same vehicle name
-		s.SaveEvent(ctx, "sess", 50, wire.Event{Kind: wire.EventPitEntry, CarID: 1, VehicleName: "other"}) // a rival's stop is not counted
+		s.SaveLap(ctx, "sess", wire.Lap{CarID: 5, VehicleName: "M4", Lap: 1}, 0)                              // a rival with the same vehicle name
+		s.SaveEvent(ctx, "sess", 50, wire.Event{Kind: wire.EventPitEntry, CarID: 1, VehicleName: "other"}, 0) // a rival's stop is not counted
 		one, zero := 1, 0
 		amb := 21.5
 		c := LapConditions{SessionID: "sess", CarID: 0, VehicleName: "M4", Lap: 1, ET: 90, Control: &one, Ambient: &amb,
@@ -455,12 +455,12 @@ func runSuite(t *testing.T, s Store) {
 		var w wear.LapWear
 		w.Lap, w.Coverage = 4, 0.97
 		w.Loss[2][7] = 0.00031
-		s.SaveLapWear(ctx, "ws", 0, "v", w)
+		s.SaveLapWear(ctx, "ws", 0, "v", w, 0)
 		w.Lap = 3
-		s.SaveLapWear(ctx, "ws", 0, "v", w)
+		s.SaveLapWear(ctx, "ws", 0, "v", w, 0)
 		w.Lap, w.Coverage = 4, 0.5
-		s.SaveLapWear(ctx, "ws", 0, "v", w) // replaces lap 4
-		s.SaveLapWear(ctx, "ws", 1, "other", w)
+		s.SaveLapWear(ctx, "ws", 0, "v", w, 0) // replaces lap 4
+		s.SaveLapWear(ctx, "ws", 1, "other", w, 0)
 		got, err := s.LapWears(ctx, "ws", 0, "v")
 		if err != nil || len(got) != 2 || got[0].Lap != 3 || got[1].Lap != 4 || got[1].Coverage != 0.5 || got[1].Loss[2][7] != 0.00031 {
 			t.Fatalf("got=%+v err=%v", got, err)
@@ -469,12 +469,12 @@ func runSuite(t *testing.T, s Store) {
 
 	t.Run("stationary time is added to the stop it belongs to", func(t *testing.T) {
 		sess := "stat"
-		s.SaveEvent(ctx, sess, 100, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "v"})
-		s.SaveEvent(ctx, sess, 190, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "v"}) // a different, later stop
-		s.AddStopped(ctx, sess, 0, "v", Standing{From: 120, To: 150, Work: 20, FuelTime: 15})
-		s.AddStopped(ctx, sess, 0, "v", Standing{From: 160, To: 165, Work: 2}) // same stop, a second interval
-		s.AddStopped(ctx, sess, 0, "v", Standing{From: 200, To: 230})
-		s.AddStopped(ctx, sess, 0, "v", Standing{From: 50, To: 60, Work: 9}) // before any stop: ignored
+		s.SaveEvent(ctx, sess, 100, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "v"}, 0)
+		s.SaveEvent(ctx, sess, 190, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "v"}, 0) // a different, later stop
+		s.AddStopped(ctx, sess, 0, "v", Standing{From: 120, To: 150, Work: 20, FuelTime: 15}, 0)
+		s.AddStopped(ctx, sess, 0, "v", Standing{From: 160, To: 165, Work: 2}, 0) // same stop, a second interval
+		s.AddStopped(ctx, sess, 0, "v", Standing{From: 200, To: 230}, 0)
+		s.AddStopped(ctx, sess, 0, "v", Standing{From: 50, To: 60, Work: 9}, 0) // before any stop: ignored
 		got, _ := s.Stops(ctx, sess)
 		if len(got) != 2 || got[0].Stopped != 35 || got[0].Work != 22 || got[0].FuelTime != 15 || got[1].Stopped != 30 {
 			t.Fatalf("%+v", got)
@@ -536,15 +536,15 @@ func runTeamSuite(t *testing.T, db DB) {
 
 		entry := wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "v"}
 		exit := wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "v", FuelAdded: f(40)}
-		a.SaveEvent(ctx, sess, 1000, entry)
-		b.SaveEvent(ctx, sess, 1000, entry) // same entry time: must not count as a duplicate of team a's stop
-		b.SaveEvent(ctx, sess, 1050, exit)
+		a.SaveEvent(ctx, sess, 1000, entry, 0)
+		b.SaveEvent(ctx, sess, 1000, entry, 0) // same entry time: must not count as a duplicate of team a's stop
+		b.SaveEvent(ctx, sess, 1050, exit, 0)
 		sa, _ := a.Stops(ctx, sess)
 		sb, _ := b.Stops(ctx, sess)
 		if len(sa) != 1 || sa[0].ExitET != nil || len(sb) != 1 || sb[0].ExitET == nil {
 			t.Fatalf("stops a=%+v b=%+v", sa, sb)
 		}
-		a.AddStopped(ctx, sess, 0, "v", Standing{From: 1010, To: 1030, Work: 15})
+		a.AddStopped(ctx, sess, 0, "v", Standing{From: 1010, To: 1030, Work: 15}, 0)
 		if sb, _ = b.Stops(ctx, sess); sb[0].Stopped != 0 {
 			t.Fatalf("stand-still leaked into the other team: %+v", sb)
 		}
@@ -561,7 +561,7 @@ func runTeamSuite(t *testing.T, db DB) {
 		if c, _ := b.LapConditions(ctx, sess); len(c) != 0 {
 			t.Fatalf("conditions leaked: %+v", c)
 		}
-		a.SaveLapWear(ctx, sess, 0, "v", wear.LapWear{Lap: 1, Coverage: 1})
+		a.SaveLapWear(ctx, sess, 0, "v", wear.LapWear{Lap: 1, Coverage: 1}, 0)
 		if w, _ := b.LapWears(ctx, sess, 0, "v"); len(w) != 0 {
 			t.Fatalf("wear leaked: %+v", w)
 		}
@@ -1035,6 +1035,32 @@ func runTeamSuite(t *testing.T, db DB) {
 		laps4, _ := st.LapsOfCar(ctx, sess, 0, "v")
 		if len(laps4) != 5 || laps4[3].AgentID != two.ID || laps4[4].AgentID != two.ID {
 			t.Fatalf("the agent with the fuel figures wins: %+v", laps4[3:])
+		}
+	})
+
+	t.Run("the first agent to report a stand-still owns the times of the stop", func(t *testing.T) {
+		st := db.ForTeam(first.ID)
+		one, err := db.CreateAgent(ctx, "stand-one", first.ID, HashToken("stand-one"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		two, err := db.CreateAgent(ctx, "stand-two", first.ID, HashToken("stand-two"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		const sess = "stand-agent"
+		entry := wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "v"}
+		st.SaveEvent(ctx, sess, 100, entry, one.ID)
+		st.SaveEvent(ctx, sess, 100.3, entry, two.ID) // the same entry seen by the other agent
+		st.AddStopped(ctx, sess, 0, "v", Standing{From: 120, To: 150, Work: 20, FuelTime: 15}, one.ID)
+		st.AddStopped(ctx, sess, 0, "v", Standing{From: 120.2, To: 150.1, Work: 20, FuelTime: 15}, two.ID) // same stand-still, other agent
+		st.AddStopped(ctx, sess, 0, "v", Standing{From: 160, To: 165, Work: 2}, one.ID)                    // a second interval of the first agent
+		got, err := st.Stops(ctx, sess)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("stops=%+v err=%v", got, err)
+		}
+		if g := got[0]; g.Stopped != 35 || g.Work != 22 || g.FuelTime != 15 || g.AgentID != one.ID || g.StandingAgentID != one.ID {
+			t.Fatalf("the stand-still is counted once for the first agent: %+v", g)
 		}
 	})
 }
