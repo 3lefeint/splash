@@ -63,6 +63,9 @@ type Server struct {
 	mu       sync.Mutex
 	received map[string]int64 // highest seq processed per agent and session
 
+	wxMu   sync.Mutex
+	wxLast map[string]float64 // game time of the last weather point stored per session
+
 	countMu    sync.Mutex
 	stale, dup int       // live samples older than the newest one, resent durable messages, since the last report
 	countedAt  time.Time // when they were last reported
@@ -247,6 +250,7 @@ func (s *Server) handle(ctx context.Context, m wire.Message, cs *connStats) (int
 		if s.Maps != nil {
 			s.Maps.Observe(ctx, m.SessionID, b)
 		}
+		s.observeWeather(ctx, cs, m.SessionID, m.ET, b.Weather)
 		for _, w := range cs.st.stood.observe(m.SessionID, m.ET, b.Vehicles) {
 			if !s.mayWrite(cs, m.SessionID, w.CarID, w.VehicleName) {
 				continue

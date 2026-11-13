@@ -10,7 +10,7 @@ import (
 
 const (
 	// weatherEvery is the game time in seconds between two points of the weather history.
-	weatherEvery = 60.0
+	weatherEvery = store.WeatherEvery
 	// weatherPoints is the length of the weather history: four hours at one point a minute.
 	weatherPoints = 240
 )
@@ -58,6 +58,7 @@ type weatherLog struct {
 
 // weatherHistory adds a point when enough game time has passed and returns a copy of the history. When the
 // session is seen for the first time (also after a restart of the backend) the stored points are loaded first.
+// The engine only shows the history; the ingest stores the points, once per team and session.
 func (e *Engine) weatherHistory(ctx context.Context, session string, et float64, w *wire.Weather) []WeatherPoint {
 	l := &e.weather
 	l.mu.Lock()
@@ -81,10 +82,6 @@ func (e *Engine) weatherHistory(ctx context.Context, session string, et float64,
 		l.points = append(l.points, p)
 		if len(l.points) > weatherPoints {
 			l.points = l.points[len(l.points)-weatherPoints:]
-		}
-		sp := store.WeatherPoint{ET: p.ET, Ambient: p.Ambient, Track: p.Track, Rain: p.Rain, Wetness: p.Wetness, AgentID: e.AgentID}
-		if err := e.Store.SaveWeatherPoint(ctx, session, sp); err != nil {
-			e.Log.Error("save weather point", "err", err)
 		}
 	}
 	return append([]WeatherPoint{}, l.points...)

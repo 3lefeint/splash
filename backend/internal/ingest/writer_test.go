@@ -139,3 +139,21 @@ func TestInPracticeEveryAgentWritesItsOwnCar(t *testing.T) {
 		t.Fatalf("laps %+v, want car 0 from agent one, car 2 from agent two, the rival from the reference agent", laps)
 	}
 }
+
+// The weather of a session is stored once per interval, however many agents of the team send it.
+func TestTheWeatherIsStoredOncePerIntervalForTheTeam(t *testing.T) {
+	r := newTwoAgents(t)
+	wx := `{"track":"ring","track_length":5000,"session_type":"practice","weather":{"track_temp":%d},"vehicles":[]}`
+	// both agents send the same minutes: agent one at seq 1 and 7 (game time 10 s and 70 s), agent two at the same times
+	for _, seq := range []int{1, 2, 7, 8} {
+		sendIn(t, r.c1, "one", sessionID, seq, "scoring", fmt.Sprintf(wx, 20+seq))
+		sendIn(t, r.c2, "two", sessionID, seq, "scoring", fmt.Sprintf(wx, 20+seq))
+	}
+	pts, err := r.st.WeatherPoints(context.Background(), sessionID, 100)
+	if err != nil || len(pts) != 2 {
+		t.Fatalf("points %+v err=%v, want two (at 10 s and 70 s)", pts, err)
+	}
+	if pts[0].AgentID != r.one.ID || pts[1].AgentID != r.one.ID {
+		t.Fatalf("points %+v, want the reference agent to have stored them", pts)
+	}
+}

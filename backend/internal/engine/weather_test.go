@@ -13,11 +13,12 @@ func TestWeatherHistorySurvivesARestartOfTheEngine(t *testing.T) {
 	st := store.NewMemory()
 	ctx := context.Background()
 	w := func(track float64) *wire.Weather { return &wire.Weather{TrackTemp: &track} }
-	e := New(st, &live.State{})
+	// the ingest stores the points; the engine only shows them
 	for i, temp := range []float64{20, 21, 22} {
-		e.weatherHistory(ctx, "s", float64(i)*weatherEvery, w(temp))
+		st.SaveWeatherPoint(ctx, "s", store.WeatherPoint{ET: float64(i) * weatherEvery, Track: &temp})
 	}
-	e.weatherHistory(ctx, "s", 2*weatherEvery+10, w(99)) // too soon after the last point: not stored
+	e := New(st, &live.State{})
+	e.weatherHistory(ctx, "s", 2*weatherEvery+10, w(99)) // too soon after the last point: not added
 	if pts, _ := st.WeatherPoints(ctx, "s", 100); len(pts) != 3 {
 		t.Fatalf("stored %d points", len(pts))
 	}

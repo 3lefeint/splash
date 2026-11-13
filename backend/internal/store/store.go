@@ -393,6 +393,9 @@ type LapConditions struct {
 	AgentID int64 `json:"-"`
 }
 
+// WeatherEvery is the game time in seconds between two stored points of the weather history.
+const WeatherEvery = 60.0
+
 // WeatherPoint is one sample of the weather during a session; ET is the game time.
 type WeatherPoint struct {
 	ET      float64  `json:"et"`
