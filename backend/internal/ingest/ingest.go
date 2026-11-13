@@ -248,6 +248,9 @@ func (s *Server) handle(ctx context.Context, m wire.Message, cs *connStats) (int
 			s.Maps.Observe(ctx, m.SessionID, b)
 		}
 		for _, w := range cs.st.stood.observe(m.SessionID, m.ET, b.Vehicles) {
+			if !s.mayWrite(cs, m.SessionID, w.CarID, w.VehicleName) {
+				continue
+			}
 			if err := s.Store.AddStopped(ctx, m.SessionID, w.CarID, w.VehicleName, w.Standing, cs.ref.ID); err != nil {
 				s.Log.Error("save stand-still", "team", s.TeamID, "err", err)
 			}
@@ -282,12 +285,16 @@ func (s *Server) handle(ctx context.Context, m wire.Message, cs *connStats) (int
 	}
 	switch b := m.Body.(type) {
 	case wire.Lap:
-		if err := s.Store.SaveLap(ctx, m.SessionID, b, cs.ref.ID); err != nil {
-			return 0, err
+		if s.mayWrite(cs, m.SessionID, b.CarID, b.VehicleName) {
+			if err := s.Store.SaveLap(ctx, m.SessionID, b, cs.ref.ID); err != nil {
+				return 0, err
+			}
 		}
 	case wire.Event:
-		if err := s.Store.SaveEvent(ctx, m.SessionID, m.ET, b, cs.ref.ID); err != nil {
-			return 0, err
+		if s.mayWrite(cs, m.SessionID, b.CarID, b.VehicleName) {
+			if err := s.Store.SaveEvent(ctx, m.SessionID, m.ET, b, cs.ref.ID); err != nil {
+				return 0, err
+			}
 		}
 	}
 	if err := s.Store.SetProgress(ctx, m.AgentID, m.SessionID, m.Seq); err != nil {

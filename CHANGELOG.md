@@ -6,6 +6,10 @@
 
 - Stops, lap conditions, tyre wear and weather points record the agent that delivered them (#17)
 
+### Changed
+
+- Laps, pit events and stand-still times of a car are written by one agent only: in a race by the driving agent, otherwise by the agent that drives the car, and cars nobody drives by the active agent with the lowest id; without a driving agent that agent writes everything (#17)
+
 ### Fixed
 
 - Stand-still times of a stop are taken from the first agent that reports them, so a second agent that sees the same car no longer doubles them (#17)

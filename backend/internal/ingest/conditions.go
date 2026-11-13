@@ -156,6 +156,13 @@ type sessionLog struct {
 	dirty   bool
 }
 
+// sessionType is the type of the session the agent is in; empty before the first scoring sample.
+func (s *sessionLog) sessionType() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.info.SessionType
+}
+
 // update merges what a message tells about the session and returns the record to write, or nil when it is not due.
 func (s *sessionLog) update(id string, now time.Time, et float64, track, sessionType, car string, carID int) *store.SessionInfo {
 	info, _, _ := s.updateSwitch(id, now, et, track, sessionType, car, carID)
