@@ -1,6 +1,12 @@
 package ingest
 
-import "time"
+import (
+	"context"
+	"time"
+
+	"github.com/3lefeint/splash/backend/internal/store"
+	"github.com/3lefeint/splash/backend/internal/wire"
+)
 
 // drivingWindow is how long an agent counts as driving, or as active, after its last telemetry or live sample.
 const drivingWindow = 30 * time.Second
@@ -55,4 +61,27 @@ func (s *Server) mayWrite(cs *connStats, sessionID string, carID int, vehicleNam
 		return me == owner
 	}
 	return me == ref
+}
+
+// observeWeather stores a point of the weather history when enough game time has passed since the last one of the
+// session. The weather belongs to the session, not to a car: the writing agent is the one mayWrite picks for no car,
+// so several agents of a team store one point and not one each.
+func (s *Server) observeWeather(ctx context.Context, cs *connStats, session string, et float64, w *wire.Weather) {
+	if w == nil || !s.mayWrite(cs, session, -1, "") {
+		return
+	}
+	s.wxMu.Lock()
+	defer s.wxMu.Unlock()
+	last, ok := s.wxLast[session]
+	if ok && et >= last && et-last < store.WeatherEvery {
+		return
+	}
+	if s.wxLast == nil {
+		s.wxLast = map[string]float64{}
+	}
+	s.wxLast[session] = et
+	p := store.WeatherPoint{ET: et, Ambient: w.AmbientTemp, Track: w.TrackTemp, Rain: w.Rain, Wetness: w.Wetness, AgentID: cs.ref.ID}
+	if err := s.Store.SaveWeatherPoint(ctx, session, p); err != nil {
+		s.Log.Error("save weather point", "team", s.TeamID, "err", err)
+	}
 }
