@@ -141,8 +141,8 @@ func TestStintPlanFromStops(t *testing.T) {
 	})
 	r.setLive(100, 60, 1, vehicle(0, "me", "GT3", 1, 0)) // first sample: start of stint 1
 	// One stop done: stint 1 is complete, stint 2 runs.
-	r.st.SaveEvent(ctx, sess, 3000, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "me"})
-	r.st.SaveEvent(ctx, sess, 3040, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "me"})
+	r.st.SaveEvent(ctx, sess, 3000, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "me"}, 0)
+	r.st.SaveEvent(ctx, sess, 3040, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "me"}, 0)
 	r.setLive(3500, 60, 11, vehicle(0, "me", "GT3", 1, 0))
 	st, err := r.eng.Compute(ctx)
 	if err != nil || st.StintPlan == nil {
@@ -279,8 +279,8 @@ func TestStintPlanStartsAtZeroWhenTheBackendMissedTheFirstStint(t *testing.T) {
 	r.laps(10)
 	r.st.SetStintPlan(ctx, []store.PlanRow{{Driver: "a", Duration: 3000}, {Driver: "b", Duration: 3000}})
 	// The backend saw its first telemetry only at 5000, after the first stop at 3000.
-	r.st.SaveEvent(ctx, sess, 3000, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "me"})
-	r.st.SaveEvent(ctx, sess, 3040, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "me"})
+	r.st.SaveEvent(ctx, sess, 3000, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "me"}, 0)
+	r.st.SaveEvent(ctx, sess, 3040, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "me"}, 0)
 	r.setLive(5000, 60, 11, vehicle(0, "me", "GT3", 1, 0))
 	st, err := r.eng.Compute(ctx)
 	if err != nil || st.StintPlan == nil {

@@ -123,8 +123,8 @@ func TestStateHasNoNullListsOrMaps(t *testing.T) {
 		r := newRig()
 		r.laps(5)
 		yes := true
-		r.st.SaveEvent(ctx, sess, 500, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "me"})
-		r.st.SaveEvent(ctx, sess, 540, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "me", FuelAdded: fp(40), TyresChanged: &yes})
+		r.st.SaveEvent(ctx, sess, 500, wire.Event{Kind: wire.EventPitEntry, CarID: 0, VehicleName: "me"}, 0)
+		r.st.SaveEvent(ctx, sess, 540, wire.Event{Kind: wire.EventPitExit, CarID: 0, VehicleName: "me", FuelAdded: fp(40), TyresChanged: &yes}, 0)
 		r.setLive(800, 70, 5, vehicle(0, "me", "GT3", 1, 0))
 		assertNoNilLists(t, "after a stop", compute(r))
 	})

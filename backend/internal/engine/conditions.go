@@ -82,7 +82,7 @@ func (e *Engine) weatherHistory(ctx context.Context, session string, et float64,
 		if len(l.points) > weatherPoints {
 			l.points = l.points[len(l.points)-weatherPoints:]
 		}
-		sp := store.WeatherPoint{ET: p.ET, Ambient: p.Ambient, Track: p.Track, Rain: p.Rain, Wetness: p.Wetness}
+		sp := store.WeatherPoint{ET: p.ET, Ambient: p.Ambient, Track: p.Track, Rain: p.Rain, Wetness: p.Wetness, AgentID: e.AgentID}
 		if err := e.Store.SaveWeatherPoint(ctx, session, sp); err != nil {
 			e.Log.Error("save weather point", "err", err)
 		}

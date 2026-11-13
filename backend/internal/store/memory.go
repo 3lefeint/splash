@@ -140,7 +140,7 @@ func (m *Memory) SaveLap(_ context.Context, sessionID string, l wire.Lap, agentI
 	return nil
 }
 
-func (m *Memory) SaveEvent(_ context.Context, sessionID string, et float64, e wire.Event) error {
+func (m *Memory) SaveEvent(_ context.Context, sessionID string, et float64, e wire.Event, agentID int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	switch e.Kind {
@@ -150,7 +150,7 @@ func (m *Memory) SaveEvent(_ context.Context, sessionID string, et float64, e wi
 				return nil
 			}
 		}
-		m.stops = append(m.stops, StopRecord{SessionID: sessionID, CarID: e.CarID, VehicleName: e.VehicleName, EntryET: et})
+		m.stops = append(m.stops, StopRecord{SessionID: sessionID, CarID: e.CarID, VehicleName: e.VehicleName, EntryET: et, AgentID: agentID})
 	case wire.EventPitExit:
 		if i := m.latest(sessionID, e, et, true); i >= 0 {
 			s := &m.stops[i]
@@ -558,7 +558,7 @@ func (m *Memory) SaveCorners(_ context.Context, track string, corners []Corner) 
 	return nil
 }
 
-func (m *Memory) SaveLapWear(_ context.Context, sessionID string, carID int, vehicleName string, w wear.LapWear) error {
+func (m *Memory) SaveLapWear(_ context.Context, sessionID string, carID int, vehicleName string, w wear.LapWear, _ int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.wears[lapKey{sessionID, carID, vehicleName, w.Lap}] = w
@@ -578,7 +578,7 @@ func (m *Memory) LapWears(_ context.Context, sessionID string, carID int, vehicl
 	return out, nil
 }
 
-func (m *Memory) AddStopped(_ context.Context, sessionID string, carID int, vehicleName string, st Standing) error {
+func (m *Memory) AddStopped(_ context.Context, sessionID string, carID int, vehicleName string, st Standing, agentID int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	best := -1
@@ -591,6 +591,10 @@ func (m *Memory) AddStopped(_ context.Context, sessionID string, carID int, vehi
 		}
 	}
 	if best >= 0 && st.To > st.From {
+		if o := m.stops[best].StandingAgentID; o != 0 && o != agentID {
+			return nil // another agent owns the stand-still times of this stop
+		}
+		m.stops[best].StandingAgentID = agentID
 		m.stops[best].Stopped += st.To - st.From
 		m.stops[best].Work += st.Work
 		m.stops[best].FuelTime += st.FuelTime

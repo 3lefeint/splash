@@ -85,17 +85,17 @@ ON CONFLICT (team_id, session_id, car_id, vehicle_name, lap) DO UPDATE SET
 	return err
 }
 
-func (p *Postgres) SaveEvent(ctx context.Context, sessionID string, et float64, e wire.Event) error {
+func (p *Postgres) SaveEvent(ctx context.Context, sessionID string, et float64, e wire.Event, agentID int64) error {
 	var err error
 	switch e.Kind {
 	case wire.EventPitEntry:
 		_, err = p.pool.Exec(ctx, `
-INSERT INTO stops (session_id, car_id, vehicle_name, entry_et, team_id)
-SELECT $1, $2, $3, $4::double precision, $6::bigint
+INSERT INTO stops (session_id, car_id, vehicle_name, entry_et, team_id, agent_id)
+SELECT $1, $2, $3, $4::double precision, $6::bigint, NULLIF($7::bigint, 0)
 WHERE NOT EXISTS (SELECT 1 FROM stops
                   WHERE team_id = $6 AND session_id = $1 AND car_id = $2 AND vehicle_name = $3
                     AND abs(entry_et - $4::double precision) <= $5)
-ON CONFLICT DO NOTHING`, sessionID, e.CarID, e.VehicleName, et, PitEntryWindow, p.team)
+ON CONFLICT DO NOTHING`, sessionID, e.CarID, e.VehicleName, et, PitEntryWindow, p.team, agentID)
 	case wire.EventPitExit:
 		changed := e.TyresChanged != nil && *e.TyresChanged
 		_, err = p.pool.Exec(ctx, `
@@ -144,7 +144,8 @@ func (p *Postgres) Laps(ctx context.Context, sessionID string) ([]LapRecord, err
 
 func (p *Postgres) Stops(ctx context.Context, sessionID string) ([]StopRecord, error) {
 	rows, err := p.pool.Query(ctx, `
-SELECT car_id, vehicle_name, entry_et, exit_et, fuel_added, tyres_changed, driver_swap, stopped, work, fuel_time
+SELECT car_id, vehicle_name, entry_et, exit_et, fuel_added, tyres_changed, driver_swap, stopped, work, fuel_time,
+       COALESCE(agent_id, 0), COALESCE(standing_agent_id, 0)
 FROM stops WHERE team_id = $2 AND session_id = $1 ORDER BY entry_et`, sessionID, p.team)
 	if err != nil {
 		return nil, err
@@ -153,7 +154,7 @@ FROM stops WHERE team_id = $2 AND session_id = $1 ORDER BY entry_et`, sessionID,
 	var out []StopRecord
 	for rows.Next() {
 		s := StopRecord{SessionID: sessionID}
-		if err := rows.Scan(&s.CarID, &s.VehicleName, &s.EntryET, &s.ExitET, &s.FuelAdded, &s.TyresChanged, &s.DriverSwap, &s.Stopped, &s.Work, &s.FuelTime); err != nil {
+		if err := rows.Scan(&s.CarID, &s.VehicleName, &s.EntryET, &s.ExitET, &s.FuelAdded, &s.TyresChanged, &s.DriverSwap, &s.Stopped, &s.Work, &s.FuelTime, &s.AgentID, &s.StandingAgentID); err != nil {
 			return nil, err
 		}
 		out = append(out, s)
@@ -493,15 +494,17 @@ ON CONFLICT (track) DO UPDATE SET corners = EXCLUDED.corners`, track, raw)
 	return err
 }
 
-func (p *Postgres) SaveLapWear(ctx context.Context, sessionID string, carID int, vehicleName string, w wear.LapWear) error {
+func (p *Postgres) SaveLapWear(ctx context.Context, sessionID string, carID int, vehicleName string, w wear.LapWear, agentID int64) error {
 	loss, err := json.Marshal(w.Loss)
 	if err != nil {
 		return err
 	}
 	_, err = p.pool.Exec(ctx, `
-INSERT INTO wear_laps (session_id, car_id, vehicle_name, lap, coverage, loss, team_id) VALUES ($1,$2,$3,$4,$5,$6,$7)
-ON CONFLICT (team_id, session_id, car_id, vehicle_name, lap) DO UPDATE SET coverage = EXCLUDED.coverage, loss = EXCLUDED.loss`,
-		sessionID, carID, vehicleName, w.Lap, w.Coverage, loss, p.team)
+INSERT INTO wear_laps (session_id, car_id, vehicle_name, lap, coverage, loss, team_id, agent_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8::bigint, 0))
+ON CONFLICT (team_id, session_id, car_id, vehicle_name, lap) DO UPDATE SET coverage = EXCLUDED.coverage, loss = EXCLUDED.loss,
+  agent_id = COALESCE(EXCLUDED.agent_id, wear_laps.agent_id)`,
+		sessionID, carID, vehicleName, w.Lap, w.Coverage, loss, p.team, agentID)
 	return err
 }
 
@@ -528,15 +531,18 @@ SELECT lap, coverage, loss FROM wear_laps WHERE team_id = $4 AND session_id = $1
 	return out, rows.Err()
 }
 
-func (p *Postgres) AddStopped(ctx context.Context, sessionID string, carID int, vehicleName string, st Standing) error {
+func (p *Postgres) AddStopped(ctx context.Context, sessionID string, carID int, vehicleName string, st Standing, agentID int64) error {
 	if st.To <= st.From {
 		return nil
 	}
 	_, err := p.pool.Exec(ctx, `
-UPDATE stops SET stopped = stopped + $5 - $4, work = work + $6, fuel_time = fuel_time + $7
+UPDATE stops SET stopped = stopped + $5 - $4, work = work + $6, fuel_time = fuel_time + $7,
+                 standing_agent_id = COALESCE(standing_agent_id, NULLIF($9::bigint, 0))
 WHERE id = (SELECT id FROM stops
             WHERE team_id = $8 AND session_id = $1 AND car_id = $2 AND vehicle_name = $3 AND entry_et <= $4
-            ORDER BY entry_et DESC LIMIT 1)`, sessionID, carID, vehicleName, st.From, st.To, st.Work, st.FuelTime, p.team)
+            ORDER BY entry_et DESC LIMIT 1)
+  AND (standing_agent_id IS NULL OR standing_agent_id IS NOT DISTINCT FROM NULLIF($9::bigint, 0))`,
+		sessionID, carID, vehicleName, st.From, st.To, st.Work, st.FuelTime, p.team, agentID)
 	return err
 }
 
@@ -767,15 +773,16 @@ func (p *Postgres) SaveLapConditions(ctx context.Context, c LapConditions) error
 	}
 	_, err := p.pool.Exec(ctx, `
 INSERT INTO lap_conditions (session_id, car_id, vehicle_name, lap, et, control, ambient, track, rain, wetness,
-  surface, inner_temp, pressure, brake, water, oil, compound_front, compound_rear, team_id)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+  surface, inner_temp, pressure, brake, water, oil, compound_front, compound_rear, team_id, agent_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NULLIF($20::bigint, 0))
 ON CONFLICT (team_id, session_id, car_id, vehicle_name, lap) DO UPDATE SET
   et = EXCLUDED.et, control = EXCLUDED.control, ambient = EXCLUDED.ambient, track = EXCLUDED.track,
   rain = EXCLUDED.rain, wetness = EXCLUDED.wetness, surface = EXCLUDED.surface, inner_temp = EXCLUDED.inner_temp,
   pressure = EXCLUDED.pressure, brake = EXCLUDED.brake, water = EXCLUDED.water, oil = EXCLUDED.oil,
-  compound_front = EXCLUDED.compound_front, compound_rear = EXCLUDED.compound_rear`,
+  compound_front = EXCLUDED.compound_front, compound_rear = EXCLUDED.compound_rear,
+  agent_id = COALESCE(EXCLUDED.agent_id, lap_conditions.agent_id)`,
 		c.SessionID, c.CarID, c.VehicleName, c.Lap, c.ET, c.Control, c.Ambient, c.Track, c.Rain, c.Wetness,
-		arr(c.Surface), arr(c.Inner), arr(c.Pressure), arr(c.Brake), c.Water, c.Oil, c.CompoundFront, c.CompoundRear, p.team)
+		arr(c.Surface), arr(c.Inner), arr(c.Pressure), arr(c.Brake), c.Water, c.Oil, c.CompoundFront, c.CompoundRear, p.team, c.AgentID)
 	return err
 }
 
@@ -815,9 +822,11 @@ FROM lap_conditions WHERE team_id = $2 AND session_id = $1 ORDER BY car_id, lap`
 
 func (p *Postgres) SaveWeatherPoint(ctx context.Context, sessionID string, w WeatherPoint) error {
 	_, err := p.pool.Exec(ctx, `
-INSERT INTO weather_points (session_id, et, ambient, track, rain, wetness, team_id) VALUES ($1,$2,$3,$4,$5,$6,$7)
+INSERT INTO weather_points (session_id, et, ambient, track, rain, wetness, team_id, agent_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8::bigint, 0))
 ON CONFLICT (team_id, session_id, et) DO UPDATE SET ambient = EXCLUDED.ambient, track = EXCLUDED.track,
-  rain = EXCLUDED.rain, wetness = EXCLUDED.wetness`, sessionID, w.ET, w.Ambient, w.Track, w.Rain, w.Wetness, p.team)
+  rain = EXCLUDED.rain, wetness = EXCLUDED.wetness, agent_id = COALESCE(EXCLUDED.agent_id, weather_points.agent_id)`,
+		sessionID, w.ET, w.Ambient, w.Track, w.Rain, w.Wetness, p.team, w.AgentID)
 	return err
 }
 
