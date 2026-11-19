@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [v0.2.1] - 2026-11-19
+
 ### Added
 
 - Stops, lap conditions, tyre wear and weather points record the agent that delivered them (#17)
